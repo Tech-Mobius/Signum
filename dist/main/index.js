@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -7,10 +40,16 @@ const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
 const crypto_1 = __importDefault(require("crypto"));
-const database_1 = require("./database");
+const db_1 = require("./db");
+const messagesRepo = __importStar(require("./db/repositories/messages"));
+const statusesRepo = __importStar(require("./db/repositories/statuses"));
+const settingsRepo = __importStar(require("./db/repositories/settings"));
+const peersRepo = __importStar(require("./db/repositories/peers"));
+const cryptoKeysRepo = __importStar(require("./db/repositories/cryptoKeys"));
 const signaling_1 = require("./signaling");
 const discovery_1 = require("./discovery");
 const router_1 = require("./router");
+const crypto_2 = require("./crypto");
 let mainWindow = null;
 let ourPeerId = '';
 let ourUsername = '';
@@ -18,7 +57,7 @@ let ourIpAddress = '';
 let ourSignalingPort = 0;
 let isSimulatedOffline = false;
 // In-memory cache of discovered/connected peers
-// peerId -> DiscoveredPeer
+// peerId -> DiscoveredPeer & { status: 'connected' | 'searching' | 'offline' }
 const peerCache = new Map();
 // Helper to log debug info and push to renderer
 function sendDebugLog(category, message, data) {
@@ -95,16 +134,17 @@ electron_1.ipcMain.on('window:close', () => {
 electron_1.app.whenReady().then(async () => {
     // 1. Setup paths and SQLite DB
     const userDataPath = electron_1.app.getPath('userData');
-    (0, database_1.initDatabase)(userDataPath);
+    await (0, db_1.getDatabase)(userDataPath);
+    (0, db_1.startAutoSave)(5000);
     // Load/Create Peer ID
-    let cachedPeerId = (0, database_1.getConfig)('peer_id');
+    let cachedPeerId = settingsRepo.getConfig('peer_id');
     if (!cachedPeerId) {
         cachedPeerId = crypto_1.default.randomUUID().substring(0, 8); // Short ID for easier readability in hackathon demo
-        (0, database_1.setConfig)('peer_id', cachedPeerId);
+        settingsRepo.setConfig('peer_id', cachedPeerId);
     }
     ourPeerId = cachedPeerId;
     // Load Username
-    ourUsername = (0, database_1.getConfig)('username') || '';
+    ourUsername = settingsRepo.getConfig('username') || '';
     ourIpAddress = getLocalIp();
     // 2. Start WebSocket Signaling Server
     try {
@@ -131,7 +171,16 @@ electron_1.app.whenReady().then(async () => {
         console.error('Failed to start signaling server:', err);
         sendDebugLog('Error', 'Failed to start signaling server', err.message);
     }
-    // 3. Initialize Router
+    // 3. Initialize Identity Keys (ECDH)
+    try {
+        await (0, crypto_2.getOrCreateIdentityKeys)();
+        const fingerprint = await (0, crypto_2.getIdentityFingerprint)();
+        sendDebugLog('Crypto', `Identity key loaded/generated. Fingerprint: ${fingerprint}`);
+    }
+    catch (err) {
+        sendDebugLog('Error', 'Failed to initialize identity keys', err.message);
+    }
+    // 4. Initialize Router
     (0, router_1.initRouter)(ourPeerId, 
     // Callback to get connected peers from memory
     () => {
@@ -164,9 +213,9 @@ electron_1.app.whenReady().then(async () => {
             mainWindow.webContents.send('message:received', message);
         }
     });
-    // 4. Create Window
+    // 5. Create Window
     createWindow();
-    // 5. Initialize Discovery if username is set
+    // 6. Initialize Discovery if username is set
     if (ourUsername) {
         startMeshServices();
     }
@@ -213,11 +262,11 @@ function sendPeerListUpdate() {
     }));
     mainWindow.webContents.send('peer:list', list);
 }
-// --- IPC IPC Listeners ---
+// --- IPC Listeners ---
 // Identity
 electron_1.ipcMain.on('identity:set-username', (_event, username) => {
     ourUsername = username;
-    (0, database_1.setConfig)('username', username);
+    settingsRepo.setConfig('username', username);
     sendDebugLog('Identity', `Username set to: ${username}`);
     if (ourSignalingPort > 0) {
         startMeshServices();
@@ -230,6 +279,10 @@ electron_1.ipcMain.handle('identity:get', () => {
         address: ourIpAddress,
         port: ourSignalingPort
     };
+});
+// Get identity fingerprint
+electron_1.ipcMain.handle('identity:get-fingerprint', async () => {
+    return (0, crypto_2.getIdentityFingerprint)();
 });
 // Manual Connection Fallback
 electron_1.ipcMain.on('peer:connect-manual', (_event, { address, port }) => {
@@ -320,54 +373,76 @@ electron_1.ipcMain.on('webrtc:received', (_event, { message }) => {
     sendDebugLog('Router', `Received mesh packet ${meshMsg.id} over WebRTC DataChannel`);
     (0, router_1.handleIncomingMessage)(meshMsg, false);
 });
-// Status check-ins
-electron_1.ipcMain.on('status:update', (_event, { status, location }) => {
-    const checkin = {
-        peer_id: ourPeerId,
-        display_name: ourUsername || 'Anonymous',
-        status,
-        location,
-        timestamp: Date.now()
-    };
-    (0, database_1.savePeerStatus)(checkin);
-    sendDebugLog('Status', `Own check-in updated: ${status} @ ${location || 'unknown'}`);
-    // Propagate across mesh as a system message
-    const meshMsg = {
-        id: crypto_1.default.randomUUID(),
-        senderId: ourPeerId,
-        recipientId: 'broadcast',
-        type: 'status',
-        payload: JSON.stringify(checkin),
-        timestamp: Date.now(),
-        ttl: 5,
-        visitedNodes: [ourPeerId],
-        hops: 0,
-        priority: 0
-    };
-    (0, router_1.handleIncomingMessage)(meshMsg, true);
-    // Send updated status board to renderer
-    if (mainWindow) {
-        mainWindow.webContents.send('status:sync', (0, database_1.getAllPeerStatuses)());
+// WebRTC key handshake completion
+electron_1.ipcMain.on('webrtc:key-handshake', async (_event, { peerId, publicKeyJwk }) => {
+    try {
+        const stored = cryptoKeysRepo.getSessionKey(peerId);
+        if (stored) {
+            sendDebugLog('Crypto', `Session key already exists for peer ${peerId}`);
+            return;
+        }
+        // The session key derivation happens in the renderer after key exchange
+        sendDebugLog('Crypto', `Key handshake completed with peer ${peerId}`);
+    }
+    catch (err) {
+        sendDebugLog('Crypto', `Failed to process key handshake for ${peerId}`, err.message);
     }
 });
-// Retrieve message and status history on renderer load
-electron_1.ipcMain.handle('history:get', () => {
+// Verify peer fingerprint
+electron_1.ipcMain.handle('peer:verify-fingerprint', async (_event, { peerId, fingerprint, displayName }) => {
+    const existing = cryptoKeysRepo.getVerifiedPeer(peerId);
+    if (existing && existing.fingerprint === fingerprint) {
+        return { verified: true, trusted: existing.verified_by === 'user' };
+    }
+    // Store as auto-trusted (TOFU)
+    cryptoKeysRepo.saveVerifiedPeer(peerId, fingerprint, 'auto', displayName);
+    return { verified: true, trusted: false };
+});
+electron_1.ipcMain.on('peer:trust-fingerprint', (_event, { peerId, fingerprint, displayName }) => {
+    cryptoKeysRepo.saveVerifiedPeer(peerId, fingerprint, 'user', displayName);
+    sendDebugLog('Security', `Manually trusted peer ${peerId} fingerprint`);
+});
+// Get ICE servers for WebRTC
+electron_1.ipcMain.handle('webrtc:get-ice-servers', () => {
     return {
-        messages: (0, database_1.getAllMessages)().map(m => ({
-            id: m.id,
-            senderId: m.sender_id,
-            recipientId: m.recipient_id,
-            type: m.type,
-            payload: m.payload,
-            timestamp: m.timestamp,
-            ttl: m.ttl,
-            visitedNodes: JSON.parse(m.visited_nodes),
-            hops: m.hops,
-            attachmentMeta: m.attachment_meta ? JSON.parse(m.attachment_meta) : undefined,
-            priority: m.priority
-        })),
-        statuses: (0, database_1.getAllPeerStatuses)()
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun.cloudflare.com:3478' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            // TURN server (public fallback - rate limited)
+            {
+                urls: 'turn:openrelay.metered.ca:443',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            }
+        ]
     };
+});
+// TURN configuration
+electron_1.ipcMain.handle('settings:get-turn-config', () => {
+    return {
+        hostname: settingsRepo.getConfig('turn_hostname') || 'openrelay.metered.ca',
+        port: parseInt(settingsRepo.getConfig('turn_port') || '443'),
+        username: settingsRepo.getConfig('turn_username') || 'openrelayproject',
+        credential: settingsRepo.getConfig('turn_credential') || 'openrelayproject',
+    };
+});
+electron_1.ipcMain.on('settings:set-turn-config', (_event, config) => {
+    if (config.hostname)
+        settingsRepo.setConfig('turn_hostname', config.hostname);
+    if (config.port)
+        settingsRepo.setConfig('turn_port', config.port.toString());
+    if (config.username)
+        settingsRepo.setConfig('turn_username', config.username);
+    if (config.credential)
+        settingsRepo.setConfig('turn_credential', config.credential);
+    sendDebugLog('Settings', 'TURN configuration updated');
 });
 // Offline Simulation
 electron_1.ipcMain.on('sim:toggle-offline', (_event, { offline }) => {
@@ -384,9 +459,52 @@ electron_1.ipcMain.on('sim:toggle-offline', (_event, { offline }) => {
         mainWindow.webContents.send('sim:status', { offline });
     }
 });
+// Get peer fingerprint
+electron_1.ipcMain.handle('peer:get-fingerprint', async (_event, { peerId }) => {
+    const existing = cryptoKeysRepo.getVerifiedPeer(peerId);
+    return existing ? { fingerprint: existing.fingerprint, trusted: existing.verified_by === 'user' } : null;
+});
+// Export/Import identity
+electron_1.ipcMain.handle('identity:export', async (_event, { passphrase }) => {
+    return (0, crypto_2.exportIdentity)(passphrase);
+});
+electron_1.ipcMain.handle('identity:import', async (_event, { backupData, passphrase }) => {
+    await (0, crypto_2.importIdentity)(backupData, passphrase);
+    // Re-initialize
+    await (0, crypto_2.getOrCreateIdentityKeys)();
+    const fingerprint = await (0, crypto_2.getIdentityFingerprint)();
+    return { fingerprint };
+});
+// Get all known peers from database
+electron_1.ipcMain.handle('peers:get-all', () => {
+    return peersRepo.getAllPeers();
+});
+// Retrieve message and status check-in history on renderer startup
+electron_1.ipcMain.handle('history:get', () => {
+    return {
+        messages: messagesRepo.getAllMessages().map(m => ({
+            id: m.id,
+            senderId: m.sender_id,
+            recipientId: m.recipient_id,
+            type: m.type,
+            payload: m.payload,
+            timestamp: m.timestamp,
+            ttl: m.ttl,
+            visitedNodes: JSON.parse(m.visited_nodes),
+            hops: m.hops,
+            attachmentMeta: m.attachment_meta ? JSON.parse(m.attachment_meta) : undefined,
+            priority: m.priority,
+            signature: m.signature
+        })),
+        statuses: statusesRepo.getAllPeerStatuses()
+    };
+});
+// Cleanup on close
 electron_1.app.on('window-all-closed', () => {
     (0, discovery_1.destroyDiscovery)();
     (0, signaling_1.closeSignalingServer)();
+    (0, db_1.stopAutoSave)();
+    (0, db_1.closeDatabase)();
     if (process.platform !== 'darwin') {
         electron_1.app.quit();
     }

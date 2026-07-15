@@ -3,7 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.initRouter = initRouter;
 exports.handleIncomingMessage = handleIncomingMessage;
 exports.syncUndeliveredMessagesToPeer = syncUndeliveredMessagesToPeer;
-const database_1 = require("./database");
+exports.handleMessageAck = handleMessageAck;
+exports.retryUndeliveredMessages = retryUndeliveredMessages;
+const messages_1 = require("./db/repositories/messages");
 let ourPeerId = '';
 let getConnectedPeerIds = () => [];
 let sendToPeerCallback = () => { };
@@ -27,7 +29,8 @@ function dbToMesh(dbMsg) {
         visitedNodes: JSON.parse(dbMsg.visited_nodes),
         hops: dbMsg.hops,
         attachmentMeta: dbMsg.attachment_meta ? JSON.parse(dbMsg.attachment_meta) : undefined,
-        priority: dbMsg.priority
+        priority: dbMsg.priority,
+        signature: dbMsg.signature,
     };
 }
 // Convert Mesh message to DB message
@@ -44,7 +47,8 @@ function meshToDb(meshMsg, delivered = 0) {
         hops: meshMsg.hops,
         delivered,
         attachment_meta: meshMsg.attachmentMeta ? JSON.stringify(meshMsg.attachmentMeta) : undefined,
-        priority: meshMsg.priority
+        priority: meshMsg.priority,
+        signature: meshMsg.signature,
     };
 }
 /**
@@ -53,7 +57,7 @@ function meshToDb(meshMsg, delivered = 0) {
  */
 function handleIncomingMessage(msg, isSelfOriginated = false) {
     // 1. Deduplicate: check if message ID already processed
-    if ((0, database_1.messageExists)(msg.id) && !isSelfOriginated) {
+    if ((0, messages_1.messageExists)(msg.id) && !isSelfOriginated) {
         console.log(`[Router] Message ${msg.id} already exists. Deduplicated (dropped).`);
         return false;
     }
@@ -67,7 +71,7 @@ function handleIncomingMessage(msg, isSelfOriginated = false) {
     if (msg.ttl <= 0) {
         console.log(`[Router] Message ${msg.id} TTL expired. Dropping.`);
         // Still save it to local database so we don't process it again (deduplication)
-        (0, database_1.saveMessage)(meshToDb(msg, 1));
+        (0, messages_1.saveMessage)(meshToDb(msg, 1));
         return false;
     }
     // 3. Mark ourselves as visited to prevent back-and-forth loops
@@ -76,7 +80,7 @@ function handleIncomingMessage(msg, isSelfOriginated = false) {
     }
     const isForUs = msg.recipientId === ourPeerId || msg.recipientId === 'broadcast';
     // 4. Save to database. If it's for us, mark as delivered (completed)
-    (0, database_1.saveMessage)(meshToDb(msg, isForUs ? 1 : 0));
+    (0, messages_1.saveMessage)(meshToDb(msg, isForUs ? 1 : 0));
     // 5. Notify the renderer to display it if it's meant for us
     if (isForUs && !isSelfOriginated) {
         notifyRendererMessageReceived(msg);
@@ -101,7 +105,7 @@ function handleIncomingMessage(msg, isSelfOriginated = false) {
  * Syncs undelivered messages that haven't been seen by the peer.
  */
 function syncUndeliveredMessagesToPeer(peerId) {
-    const undelivered = (0, database_1.getUndeliveredMessages)();
+    const undelivered = (0, messages_1.getUndeliveredMessages)();
     if (undelivered.length === 0)
         return;
     console.log(`[Router] Syncing ${undelivered.length} potential messages to newly connected peer: ${peerId}`);
@@ -111,11 +115,36 @@ function syncUndeliveredMessagesToPeer(peerId) {
         // And if it is a broadcast, or if it is destined for this peer
         if (!msg.visitedNodes.includes(peerId)) {
             const isRecipientReachable = msg.recipientId === 'broadcast' || msg.recipientId === peerId;
-            // If it's a direct message for someone else, we can still relay it to this peer 
+            // If it's a direct message for someone else, we can still relay it to this peer
             // if it helps it reach the destination (epidemic routing allows storing and carrying).
             // So we forward it to any peer who hasn't seen it yet to increase the chance of delivery.
             console.log(`[Router] Sync-forwarding stored message ${msg.id} to peer ${peerId}`);
             sendToPeerCallback(peerId, msg);
         }
+    });
+}
+/**
+ * Called when we receive an ACK for a message we sent
+ */
+function handleMessageAck(messageId, peerId) {
+    // Mark as acknowledged in database
+    (0, messages_1.markMessageAcknowledged)(messageId);
+    console.log(`[Router] Message ${messageId} acknowledged by peer ${peerId}`);
+}
+/**
+ * Retry sending messages that haven't been acknowledged
+ */
+function retryUndeliveredMessages() {
+    const messages = (0, messages_1.getMessagesForRetry)(5); // Max 5 retries
+    messages.forEach(dbMsg => {
+        const msg = dbToMesh(dbMsg);
+        const connectedPeers = getConnectedPeerIds();
+        // Try to send to peers who haven't seen this message
+        connectedPeers.forEach(peerId => {
+            if (!msg.visitedNodes.includes(peerId)) {
+                console.log(`[Router] Retrying message ${msg.id} to peer ${peerId} (attempt ${(dbMsg.retry_count ?? 0) + 1})`);
+                sendToPeerCallback(peerId, msg);
+            }
+        });
     });
 }

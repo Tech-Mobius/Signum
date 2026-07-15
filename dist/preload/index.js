@@ -7,6 +7,7 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     setUsername: (username) => electron_1.ipcRenderer.send('identity:set-username', username),
     getIdentity: () => electron_1.ipcRenderer.invoke('identity:get'),
     getHistory: () => electron_1.ipcRenderer.invoke('history:get'),
+    getFingerprint: () => electron_1.ipcRenderer.invoke('identity:get-fingerprint'),
     // Messaging
     sendMessage: (recipientId, type, payload, attachmentMeta) => electron_1.ipcRenderer.send('message:send', { recipientId, type, payload, attachmentMeta }),
     onMessageReceived: (callback) => {
@@ -56,5 +57,35 @@ electron_1.contextBridge.exposeInMainWorld('api', {
         const subscription = (_event, log) => callback(log);
         electron_1.ipcRenderer.on('debug:log', subscription);
         return () => electron_1.ipcRenderer.removeListener('debug:log', subscription);
-    }
+    },
+    // WebRTC bridges — allow Renderer to send/receive WebRTC signaling and data
+    // These are needed because App.tsx manages WebRTC connections in the renderer
+    webrtcSend: (peerId, message) => electron_1.ipcRenderer.send('webrtc:send-to-peer', { peerId, message }),
+    webrtcStatus: (peerId, status) => electron_1.ipcRenderer.send('webrtc:status', { peerId, status }),
+    webrtcReceived: (message) => electron_1.ipcRenderer.send('webrtc:received', { message }),
+    onWebrtcSend: (callback) => {
+        const subscription = (_event, data) => callback(data);
+        electron_1.ipcRenderer.on('webrtc:send', subscription);
+        return () => electron_1.ipcRenderer.removeListener('webrtc:send', subscription);
+    },
+    forwardSignal: (address, port, signal) => electron_1.ipcRenderer.invoke('webrtc:forward-signal', { address, port, signal }),
+    webrtcKeyHandshake: (peerId, publicKeyJwk) => electron_1.ipcRenderer.send('webrtc:key-handshake', { peerId, publicKeyJwk }),
+    // Peer verification
+    verifyPeerFingerprint: (peerId, fingerprint, displayName) => electron_1.ipcRenderer.invoke('peer:verify-fingerprint', { peerId, fingerprint, displayName }),
+    trustPeerFingerprint: (peerId, fingerprint, displayName) => electron_1.ipcRenderer.send('peer:trust-fingerprint', { peerId, fingerprint, displayName }),
+    getPeerFingerprint: (peerId) => electron_1.ipcRenderer.invoke('peer:get-fingerprint', { peerId }),
+    // ICE Servers
+    getIceServers: () => electron_1.ipcRenderer.invoke('webrtc:get-ice-servers'),
+    // TURN Configuration
+    getTurnConfig: () => electron_1.ipcRenderer.invoke('settings:get-turn-config'),
+    setTurnConfig: (config) => electron_1.ipcRenderer.send('settings:set-turn-config', config),
+    // Window controls
+    minimizeWindow: () => electron_1.ipcRenderer.send('window:minimize'),
+    maximizeWindow: () => electron_1.ipcRenderer.send('window:maximize'),
+    closeWindow: () => electron_1.ipcRenderer.send('window:close'),
+    // Identity backup/restore
+    exportIdentity: (passphrase) => electron_1.ipcRenderer.invoke('identity:export', { passphrase }),
+    importIdentity: (backupData, passphrase) => electron_1.ipcRenderer.invoke('identity:import', { backupData, passphrase }),
+    // Get all peers
+    getAllPeers: () => electron_1.ipcRenderer.invoke('peers:get-all'),
 });

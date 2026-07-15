@@ -3,18 +3,38 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import fs from 'fs';
-import { 
-  initDatabase, 
-  setConfig, 
-  getConfig, 
-  savePeerStatus, 
-  getAllPeerStatuses, 
-  getAllMessages, 
-  PeerStatus 
-} from './database';
-import { initSignalingServer, sendSignalToPeer, getSignalingPort, closeSignalingServer } from './signaling';
+import {
+  getDatabase,
+  saveDatabase,
+  startAutoSave,
+  stopAutoSave,
+  closeDatabase,
+} from './db';
+import * as messagesRepo from './db/repositories/messages';
+import * as statusesRepo from './db/repositories/statuses';
+import * as settingsRepo from './db/repositories/settings';
+import * as peersRepo from './db/repositories/peers';
+import * as cryptoKeysRepo from './db/repositories/cryptoKeys';
+import {
+  initSignalingServer,
+  sendSignalToPeer,
+  getSignalingPort,
+  closeSignalingServer,
+} from './signaling';
 import { initDiscovery, destroyDiscovery, updateDiscoveryName, DiscoveredPeer } from './discovery';
 import { initRouter, handleIncomingMessage, syncUndeliveredMessagesToPeer, MeshMessage } from './router';
+import {
+  getOrCreateIdentityKeys,
+  getIdentityFingerprint,
+  verifyPeerFingerprint,
+  trustPeerFingerprint,
+  storeSessionKey,
+  getVerifiedPeers,
+  exportIdentity,
+  importIdentity,
+  encryptMessagePayload,
+  decryptMessagePayload,
+} from './crypto';
 
 let mainWindow: BrowserWindow | null = null;
 let ourPeerId = '';
@@ -24,7 +44,7 @@ let ourSignalingPort = 0;
 let isSimulatedOffline = false;
 
 // In-memory cache of discovered/connected peers
-// peerId -> DiscoveredPeer
+// peerId -> DiscoveredPeer & { status: 'connected' | 'searching' | 'offline' }
 const peerCache = new Map<string, DiscoveredPeer & { status: 'connected' | 'searching' | 'offline' }>();
 
 // Helper to log debug info and push to renderer
@@ -108,18 +128,19 @@ ipcMain.on('window:close', () => {
 app.whenReady().then(async () => {
   // 1. Setup paths and SQLite DB
   const userDataPath = app.getPath('userData');
-  initDatabase(userDataPath);
+  await getDatabase(userDataPath);
+  startAutoSave(5000);
 
   // Load/Create Peer ID
-  let cachedPeerId = getConfig('peer_id');
+  let cachedPeerId = settingsRepo.getConfig('peer_id');
   if (!cachedPeerId) {
     cachedPeerId = crypto.randomUUID().substring(0, 8); // Short ID for easier readability in hackathon demo
-    setConfig('peer_id', cachedPeerId);
+    settingsRepo.setConfig('peer_id', cachedPeerId);
   }
   ourPeerId = cachedPeerId;
 
   // Load Username
-  ourUsername = getConfig('username') || '';
+  ourUsername = settingsRepo.getConfig('username') || '';
   ourIpAddress = getLocalIp();
 
   // 2. Start WebSocket Signaling Server
@@ -127,9 +148,9 @@ app.whenReady().then(async () => {
     ourSignalingPort = await initSignalingServer((signalData) => {
       // Received signaling data from another peer
       if (isSimulatedOffline) return;
-      
+
       sendDebugLog('Signaling', `Received signal (${signalData.type}) from ${signalData.senderName} (${signalData.senderId})`);
-      
+
       // Forward to renderer to handle WebRTC connection
       if (mainWindow) {
         mainWindow.webContents.send('message:received', {
@@ -148,7 +169,16 @@ app.whenReady().then(async () => {
     sendDebugLog('Error', 'Failed to start signaling server', err.message);
   }
 
-  // 3. Initialize Router
+  // 3. Initialize Identity Keys (ECDH)
+  try {
+    await getOrCreateIdentityKeys();
+    const fingerprint = await getIdentityFingerprint();
+    sendDebugLog('Crypto', `Identity key loaded/generated. Fingerprint: ${fingerprint}`);
+  } catch (err: any) {
+    sendDebugLog('Error', 'Failed to initialize identity keys', err.message);
+  }
+
+  // 4. Initialize Router
   initRouter(
     ourPeerId,
     // Callback to get connected peers from memory
@@ -182,10 +212,10 @@ app.whenReady().then(async () => {
     }
   );
 
-  // 4. Create Window
+  // 5. Create Window
   createWindow();
 
-  // 5. Initialize Discovery if username is set
+  // 6. Initialize Discovery if username is set
   if (ourUsername) {
     startMeshServices();
   }
@@ -204,7 +234,7 @@ function startMeshServices() {
     // Peer Found (mDNS 'up')
     (peer) => {
       if (isSimulatedOffline) return;
-      
+
       const existing = peerCache.get(peer.id);
       peerCache.set(peer.id, {
         ...peer,
@@ -212,7 +242,7 @@ function startMeshServices() {
       });
 
       sendDebugLog('Discovery', `Peer UP: ${peer.displayName} at ${peer.address}:${peer.port}`);
-      
+
       // Notify Renderer to show and establish WebRTC connection
       sendPeerListUpdate();
     },
@@ -240,14 +270,14 @@ function sendPeerListUpdate() {
   mainWindow.webContents.send('peer:list', list);
 }
 
-// --- IPC IPC Listeners ---
+// --- IPC Listeners ---
 
 // Identity
 ipcMain.on('identity:set-username', (_event, username) => {
   ourUsername = username;
-  setConfig('username', username);
+  settingsRepo.setConfig('username', username);
   sendDebugLog('Identity', `Username set to: ${username}`);
-  
+
   if (ourSignalingPort > 0) {
     startMeshServices();
   }
@@ -262,10 +292,15 @@ ipcMain.handle('identity:get', () => {
   };
 });
 
+// Get identity fingerprint
+ipcMain.handle('identity:get-fingerprint', async () => {
+  return getIdentityFingerprint();
+});
+
 // Manual Connection Fallback
 ipcMain.on('peer:connect-manual', (_event, { address, port }) => {
   sendDebugLog('Mesh', `Manual connection requested to ${address}:${port}`);
-  
+
   // Create a temporary peer entry
   const tempId = `manual-${crypto.randomBytes(4).toString('hex')}`;
   peerCache.set(tempId, {
@@ -275,7 +310,7 @@ ipcMain.on('peer:connect-manual', (_event, { address, port }) => {
     port,
     status: 'searching'
   });
-  
+
   sendPeerListUpdate();
 
   // Send a signal directly to initiate connection
@@ -312,7 +347,7 @@ ipcMain.on('message:send', (_event, { recipientId, type, payload, attachmentMeta
   };
 
   sendDebugLog('Router', `Originating message ${meshMsg.id} to ${recipientId} (${type})`);
-  
+
   // Save to DB and broadcast/route
   handleIncomingMessage(meshMsg, true);
 });
@@ -320,7 +355,7 @@ ipcMain.on('message:send', (_event, { recipientId, type, payload, attachmentMeta
 // WebRTC signal relay from Renderer to peer
 ipcMain.handle('webrtc:forward-signal', async (_event, { address, port, signal }) => {
   if (isSimulatedOffline) return;
-  
+
   try {
     const payload = {
       senderId: ourPeerId,
@@ -343,7 +378,7 @@ ipcMain.on('webrtc:status', (_event, { peerId, status }) => {
     if (oldStatus !== status) {
       sendDebugLog('Mesh', `Connection to peer ${peer.displayName} changed from ${oldStatus} to ${status}`);
       sendPeerListUpdate();
-      
+
       // If it connected, sync undelivered messages
       if (status === 'connected') {
         syncUndeliveredMessagesToPeer(peerId);
@@ -355,52 +390,131 @@ ipcMain.on('webrtc:status', (_event, { peerId, status }) => {
 // Incoming message from WebRTC channel in Renderer
 ipcMain.on('webrtc:received', (_event, { message }) => {
   if (isSimulatedOffline) return;
-  
+
   const meshMsg = message as MeshMessage;
   sendDebugLog('Router', `Received mesh packet ${meshMsg.id} over WebRTC DataChannel`);
-  
+
   handleIncomingMessage(meshMsg, false);
 });
 
-// Status check-ins
-ipcMain.on('status:update', (_event, { status, location }) => {
-  const checkin: PeerStatus = {
-    peer_id: ourPeerId,
-    display_name: ourUsername || 'Anonymous',
-    status,
-    location,
-    timestamp: Date.now()
-  };
-
-  savePeerStatus(checkin);
-  sendDebugLog('Status', `Own check-in updated: ${status} @ ${location || 'unknown'}`);
-  
-  // Propagate across mesh as a system message
-  const meshMsg: MeshMessage = {
-    id: crypto.randomUUID(),
-    senderId: ourPeerId,
-    recipientId: 'broadcast',
-    type: 'status',
-    payload: JSON.stringify(checkin),
-    timestamp: Date.now(),
-    ttl: 5,
-    visitedNodes: [ourPeerId],
-    hops: 0,
-    priority: 0
-  };
-  
-  handleIncomingMessage(meshMsg, true);
-  
-  // Send updated status board to renderer
-  if (mainWindow) {
-    mainWindow.webContents.send('status:sync', getAllPeerStatuses());
+// WebRTC key handshake completion
+ipcMain.on('webrtc:key-handshake', async (_event, { peerId, publicKeyJwk }) => {
+  try {
+    const stored = cryptoKeysRepo.getSessionKey(peerId);
+    if (stored) {
+      sendDebugLog('Crypto', `Session key already exists for peer ${peerId}`);
+      return;
+    }
+    // The session key derivation happens in the renderer after key exchange
+    sendDebugLog('Crypto', `Key handshake completed with peer ${peerId}`);
+  } catch (err: any) {
+    sendDebugLog('Crypto', `Failed to process key handshake for ${peerId}`, err.message);
   }
 });
 
-// Retrieve message and status history on renderer load
+// Verify peer fingerprint
+ipcMain.handle('peer:verify-fingerprint', async (_event, { peerId, fingerprint, displayName }) => {
+  const existing = cryptoKeysRepo.getVerifiedPeer(peerId);
+  if (existing && existing.fingerprint === fingerprint) {
+    return { verified: true, trusted: existing.verified_by === 'user' };
+  }
+
+  // Store as auto-trusted (TOFU)
+  cryptoKeysRepo.saveVerifiedPeer(peerId, fingerprint, 'auto', displayName);
+  return { verified: true, trusted: false };
+});
+
+ipcMain.on('peer:trust-fingerprint', (_event, { peerId, fingerprint, displayName }) => {
+  cryptoKeysRepo.saveVerifiedPeer(peerId, fingerprint, 'user', displayName);
+  sendDebugLog('Security', `Manually trusted peer ${peerId} fingerprint`);
+});
+
+// Get ICE servers for WebRTC
+ipcMain.handle('webrtc:get-ice-servers', () => {
+  return {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      // TURN server (public fallback - rate limited)
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
+    ]
+  };
+});
+
+// TURN configuration
+ipcMain.handle('settings:get-turn-config', () => {
+  return {
+    hostname: settingsRepo.getConfig('turn_hostname') || 'openrelay.metered.ca',
+    port: parseInt(settingsRepo.getConfig('turn_port') || '443'),
+    username: settingsRepo.getConfig('turn_username') || 'openrelayproject',
+    credential: settingsRepo.getConfig('turn_credential') || 'openrelayproject',
+  };
+});
+
+ipcMain.on('settings:set-turn-config', (_event, config) => {
+  if (config.hostname) settingsRepo.setConfig('turn_hostname', config.hostname);
+  if (config.port) settingsRepo.setConfig('turn_port', config.port.toString());
+  if (config.username) settingsRepo.setConfig('turn_username', config.username);
+  if (config.credential) settingsRepo.setConfig('turn_credential', config.credential);
+  sendDebugLog('Settings', 'TURN configuration updated');
+});
+
+// Offline Simulation
+ipcMain.on('sim:toggle-offline', (_event, { offline }) => {
+  isSimulatedOffline = offline;
+  sendDebugLog('Sim', `offline mode set to: ${offline}`);
+
+  if (offline) {
+    destroyDiscovery();
+  } else if (ourUsername) {
+    startMeshServices();
+  }
+
+  sendPeerListUpdate();
+  if (mainWindow) {
+    mainWindow.webContents.send('sim:status', { offline });
+  }
+});
+
+// Get peer fingerprint
+ipcMain.handle('peer:get-fingerprint', async (_event, { peerId }) => {
+  const existing = cryptoKeysRepo.getVerifiedPeer(peerId);
+  return existing ? { fingerprint: existing.fingerprint, trusted: existing.verified_by === 'user' } : null;
+});
+
+// Export/Import identity
+ipcMain.handle('identity:export', async (_event, { passphrase }) => {
+  return exportIdentity(passphrase);
+});
+
+ipcMain.handle('identity:import', async (_event, { backupData, passphrase }) => {
+  await importIdentity(backupData, passphrase);
+  // Re-initialize
+  await getOrCreateIdentityKeys();
+  const fingerprint = await getIdentityFingerprint();
+  return { fingerprint };
+});
+
+// Get all known peers from database
+ipcMain.handle('peers:get-all', () => {
+  return peersRepo.getAllPeers();
+});
+
+// Retrieve message and status check-in history on renderer startup
 ipcMain.handle('history:get', () => {
   return {
-    messages: getAllMessages().map(m => ({
+    messages: messagesRepo.getAllMessages().map(m => ({
       id: m.id,
       senderId: m.sender_id,
       recipientId: m.recipient_id,
@@ -411,32 +525,19 @@ ipcMain.handle('history:get', () => {
       visitedNodes: JSON.parse(m.visited_nodes),
       hops: m.hops,
       attachmentMeta: m.attachment_meta ? JSON.parse(m.attachment_meta) : undefined,
-      priority: m.priority
+      priority: m.priority,
+      signature: m.signature
     })),
-    statuses: getAllPeerStatuses()
+    statuses: statusesRepo.getAllPeerStatuses()
   };
 });
 
-// Offline Simulation
-ipcMain.on('sim:toggle-offline', (_event, { offline }) => {
-  isSimulatedOffline = offline;
-  sendDebugLog('Sim', `offline mode set to: ${offline}`);
-  
-  if (offline) {
-    destroyDiscovery();
-  } else if (ourUsername) {
-    startMeshServices();
-  }
-  
-  sendPeerListUpdate();
-  if (mainWindow) {
-    mainWindow.webContents.send('sim:status', { offline });
-  }
-});
-
+// Cleanup on close
 app.on('window-all-closed', () => {
   destroyDiscovery();
   closeSignalingServer();
+  stopAutoSave();
+  closeDatabase();
   if (process.platform !== 'darwin') {
     app.quit();
   }

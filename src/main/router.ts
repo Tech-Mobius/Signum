@@ -1,10 +1,4 @@
-import { 
-  saveMessage, 
-  messageExists, 
-  DBMessage, 
-  getUndeliveredMessages,
-  markMessageDelivered
-} from './database';
+import { messageExists, saveMessage, DBMessage, getUndeliveredMessages, markMessageAcknowledged, getMessagesForRetry } from './db/repositories/messages';
 
 export interface MeshMessage {
   id: string;
@@ -18,6 +12,7 @@ export interface MeshMessage {
   hops: number;
   attachmentMeta?: any;
   priority: number;
+  signature?: string; // For message authentication
 }
 
 let ourPeerId = '';
@@ -50,7 +45,8 @@ function dbToMesh(dbMsg: DBMessage): MeshMessage {
     visitedNodes: JSON.parse(dbMsg.visited_nodes),
     hops: dbMsg.hops,
     attachmentMeta: dbMsg.attachment_meta ? JSON.parse(dbMsg.attachment_meta) : undefined,
-    priority: dbMsg.priority
+    priority: dbMsg.priority,
+    signature: dbMsg.signature,
   };
 }
 
@@ -68,7 +64,8 @@ function meshToDb(meshMsg: MeshMessage, delivered = 0): DBMessage {
     hops: meshMsg.hops,
     delivered,
     attachment_meta: meshMsg.attachmentMeta ? JSON.stringify(meshMsg.attachmentMeta) : undefined,
-    priority: meshMsg.priority
+    priority: meshMsg.priority,
+    signature: meshMsg.signature,
   };
 }
 
@@ -118,7 +115,7 @@ export function handleIncomingMessage(msg: MeshMessage, isSelfOriginated = false
   // If the message is a broadcast, or it's not meant for us, we flood/relay it
   if (msg.recipientId === 'broadcast' || msg.recipientId !== ourPeerId) {
     const connectedPeers = getConnectedPeerIds();
-    
+
     // Flood routing: send to all connected peers who haven't seen it yet
     connectedPeers.forEach(peerId => {
       // Don't send back to nodes that have already visited/seen the message
@@ -138,24 +135,53 @@ export function handleIncomingMessage(msg: MeshMessage, isSelfOriginated = false
  */
 export function syncUndeliveredMessagesToPeer(peerId: string) {
   const undelivered = getUndeliveredMessages();
-  
+
   if (undelivered.length === 0) return;
-  
+
   console.log(`[Router] Syncing ${undelivered.length} potential messages to newly connected peer: ${peerId}`);
 
   undelivered.forEach(dbMsg => {
     const msg = dbToMesh(dbMsg);
-    
+
     // Check if the peer has not visited/seen this message
     // And if it is a broadcast, or if it is destined for this peer
     if (!msg.visitedNodes.includes(peerId)) {
       const isRecipientReachable = msg.recipientId === 'broadcast' || msg.recipientId === peerId;
-      
-      // If it's a direct message for someone else, we can still relay it to this peer 
+
+      // If it's a direct message for someone else, we can still relay it to this peer
       // if it helps it reach the destination (epidemic routing allows storing and carrying).
       // So we forward it to any peer who hasn't seen it yet to increase the chance of delivery.
       console.log(`[Router] Sync-forwarding stored message ${msg.id} to peer ${peerId}`);
       sendToPeerCallback(peerId, msg);
     }
+  });
+}
+
+/**
+ * Called when we receive an ACK for a message we sent
+ */
+export function handleMessageAck(messageId: string, peerId: string): void {
+  // Mark as acknowledged in database
+  markMessageAcknowledged(messageId);
+  console.log(`[Router] Message ${messageId} acknowledged by peer ${peerId}`);
+}
+
+/**
+ * Retry sending messages that haven't been acknowledged
+ */
+export function retryUndeliveredMessages(): void {
+  const messages = getMessagesForRetry(5); // Max 5 retries
+
+  messages.forEach(dbMsg => {
+    const msg = dbToMesh(dbMsg);
+    const connectedPeers = getConnectedPeerIds();
+
+    // Try to send to peers who haven't seen this message
+    connectedPeers.forEach(peerId => {
+      if (!msg.visitedNodes.includes(peerId)) {
+        console.log(`[Router] Retrying message ${msg.id} to peer ${peerId} (attempt ${(dbMsg.retry_count ?? 0) + 1})`);
+        sendToPeerCallback(peerId, msg);
+      }
+    });
   });
 }

@@ -68,5 +68,6 @@ function getSignalingPort() {
 function closeSignalingServer() {
     if (wss) {
         wss.close();
+        wss = null;
     }
 }
