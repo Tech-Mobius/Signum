@@ -1,5 +1,5 @@
 {
-  "name": "signal",
+  "name": "signum",
   "version": "1.0.0",
   "description": "Offline-first P2P emergency communication tool",
   "main": "dist/main/index.js",
@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "node scripts/dev.js",
-    "build": "tsc && vite build && electron-packager . Signal --platform=win32 --arch=x64 --out=dist-package --overwrite",
+    "build": "tsc && vite build && electron-packager . Signum --platform=win32 --arch=x64 --out=dist-build --overwrite",
     "start": "electron ."
   },
   "dependencies": {

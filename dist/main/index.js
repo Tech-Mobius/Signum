@@ -95,7 +95,7 @@ function createWindow() {
         minWidth: 950,
         minHeight: 650,
         frame: false, // No browser chrome - custom title bar
-        title: 'Signal',
+        title: 'Signum',
         webPreferences: {
             preload: path_1.default.join(__dirname, '../preload/index.js'),
             contextIsolation: true,
@@ -112,6 +112,13 @@ function createWindow() {
     else {
         mainWindow.loadFile(path_1.default.join(__dirname, '../renderer/index.html'));
     }
+    // Fallback if Vite dev server is offline during local run
+    mainWindow.webContents.on('did-fail-load', (_event, _errorCode, _errorDescription, validatedURL) => {
+        if (validatedURL.startsWith('http://localhost:5173')) {
+            console.log('[Main] Vite dev server offline. Falling back to local built assets...');
+            mainWindow?.loadFile(path_1.default.join(__dirname, '../renderer/index.html'));
+        }
+    });
     mainWindow.on('closed', () => {
         mainWindow = null;
     });

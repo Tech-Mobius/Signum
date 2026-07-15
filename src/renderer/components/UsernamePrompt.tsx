@@ -35,7 +35,7 @@ export default function UsernamePrompt({ onSave }: UsernamePromptProps) {
         <div>
           <h2 className="text-base font-bold text-snow uppercase tracking-widest">Initialize Node Identity</h2>
           <p className="text-[11px] text-fog leading-relaxed mt-1 max-w-[300px] mx-auto">
-            Welcome to the Signal mesh network. Choose a callsign to identify your node on the local emergency grid.
+            Welcome to the Signum mesh network. Choose a callsign to identify your node on the local emergency grid.
           </p>
         </div>
 

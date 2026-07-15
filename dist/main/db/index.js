@@ -56,7 +56,17 @@ let isInitialized = false;
 // Initialize SQL.js WASM module
 async function initializeSqlJs() {
     const SQL = await (0, sql_js_1.default)({
-        locateFile: (file) => `node_modules/sql.js/dist/${file}`,
+        locateFile: (file) => {
+            try {
+                const distDir = path_1.default.dirname(require.resolve('sql.js'));
+                const wasmPath = path_1.default.join(distDir, file);
+                return wasmPath;
+            }
+            catch (err) {
+                console.error('Failed to locate sql.js WASM file dynamically, using fallback relative path:', err);
+                return `node_modules/sql.js/dist/${file}`;
+            }
+        },
     });
     return SQL;
 }

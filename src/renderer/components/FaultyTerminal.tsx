@@ -280,6 +280,12 @@ export default function FaultyTerminal({
 
   const ditherValue = useMemo(() => (typeof dither === 'boolean' ? (dither ? 1 : 0) : dither), [dither]);
 
+  const gridMulX = gridMul[0];
+  const gridMulY = gridMul[1];
+  const tintR = tintVec[0];
+  const tintG = tintVec[1];
+  const tintB = tintVec[2];
+
   const handleMouseMove = useCallback((e: MouseEvent) => {
     const ctn = containerRef.current;
     if (!ctn) return;
@@ -310,7 +316,7 @@ export default function FaultyTerminal({
         },
         uScale: { value: scale },
 
-        uGridMul: { value: new Float32Array(gridMul) },
+        uGridMul: { value: new Float32Array([gridMulX, gridMulY]) },
         uDigitSize: { value: digitSize },
         uScanlineIntensity: { value: scanlineIntensity },
         uGlitchAmount: { value: glitchAmount },
@@ -319,7 +325,7 @@ export default function FaultyTerminal({
         uChromaticAberration: { value: chromaticAberration },
         uDither: { value: ditherValue },
         uCurvature: { value: curvature },
-        uTint: { value: new Color(tintVec[0], tintVec[1], tintVec[2]) },
+        uTint: { value: new Color(tintR, tintG, tintB) },
         uMouse: {
           value: new Float32Array([smoothMouseRef.current.x, smoothMouseRef.current.y])
         },
@@ -404,7 +410,8 @@ export default function FaultyTerminal({
     pause,
     timeScale,
     scale,
-    gridMul,
+    gridMulX,
+    gridMulY,
     digitSize,
     scanlineIntensity,
     glitchAmount,
@@ -413,7 +420,9 @@ export default function FaultyTerminal({
     chromaticAberration,
     ditherValue,
     curvature,
-    tintVec,
+    tintR,
+    tintG,
+    tintB,
     mouseReact,
     mouseStrength,
     pageLoadAnimation,

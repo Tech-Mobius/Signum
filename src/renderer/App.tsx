@@ -248,17 +248,17 @@ export default function App() {
           digitSize={1.4}
           timeScale={0.35}
           pause={false}
-          scanlineIntensity={0.35}
-          glitchAmount={1.2}
-          flickerAmount={0.85}
-          noiseAmp={0.15}
-          chromaticAberration={1.5}
+          scanlineIntensity={0.18}
+          glitchAmount={0.08}
+          flickerAmount={0.03}
+          noiseAmp={0.01}
+          chromaticAberration={0.8}
           curvature={0.15}
           tint="#4A9B6E"
           mouseReact={true}
           mouseStrength={0.3}
           pageLoadAnimation={true}
-          brightness={0.4}
+          brightness={0.85}
         />
       </div>
 
@@ -266,8 +266,7 @@ export default function App() {
       <div className="title-bar">
         <div className="title-bar-identity">
           <Shield className="w-4 h-4 text-amber-sos" />
-          <span className="title-bar-logo">SIGNAL</span>
-          <span className="title-bar-badge">OFFLINE EMERGENCY NET</span>
+          <span className="title-bar-logo">SIGNUM</span>
           {identityHook.identity && (
             <span className="text-[10px] text-fog font-mono ml-3 hidden xl:block">
               NODE: {identityHook.identity.peerId} · {identityHook.identity.username || 'ANON'}
