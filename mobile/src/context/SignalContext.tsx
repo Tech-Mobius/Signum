@@ -3,7 +3,7 @@ import { registerGlobals } from 'react-native-webrtc';
 import * as sqlite from '../db/sqlite';
 import * as crypto from '../crypto';
 import { strToU8, deflateSync, inflateSync, strFromU8 } from 'fflate';
-
+import * as base64js from 'base64-js';
 registerGlobals();
 
 const utf8Btoa = (str: string): string => {
@@ -19,12 +19,7 @@ export async function compressPayload(payload: any): Promise<string> {
     const jsonStr = JSON.stringify(payload);
     const bytes = strToU8(jsonStr);
     const compressed = deflateSync(bytes);
-    let binary = '';
-    const len = compressed.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(compressed[i]);
-    }
-    return btoa(binary);
+    return base64js.fromByteArray(compressed);
   } catch (e) {
     console.warn('fflate compression failed, fallback:', e);
     return utf8Btoa(JSON.stringify(payload));
@@ -34,12 +29,7 @@ export async function compressPayload(payload: any): Promise<string> {
 export async function decompressPayload(code: string): Promise<any> {
   const trimmed = code.trim();
   try {
-    const binary = atob(trimmed);
-    const len = binary.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
+    const bytes = base64js.toByteArray(trimmed);
     const decompressed = inflateSync(bytes);
     const text = strFromU8(decompressed);
     return JSON.parse(text);

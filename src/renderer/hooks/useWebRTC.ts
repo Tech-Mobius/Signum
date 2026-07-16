@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { strToU8, deflateSync, inflateSync, strFromU8 } from 'fflate';
+import * as base64js from 'base64-js';
 
 export interface WebRTCHookConfig {
   peerId: string; 
@@ -316,12 +317,7 @@ export function useWebRTC({
       const jsonStr = JSON.stringify(payload);
       const bytes = strToU8(jsonStr);
       const compressed = deflateSync(bytes);
-      let binary = '';
-      const len = compressed.byteLength;
-      for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(compressed[i]);
-      }
-      return btoa(binary);
+      return base64js.fromByteArray(compressed);
     } catch (e) {
       console.warn('fflate compression failed:', e);
       return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -331,12 +327,7 @@ export function useWebRTC({
   const decompressPayload = async (code: string): Promise<any> => {
     const trimmed = code.trim();
     try {
-      const binary = atob(trimmed);
-      const len = binary.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
+      const bytes = base64js.toByteArray(trimmed);
       const decompressed = inflateSync(bytes);
       const text = strFromU8(decompressed);
       return JSON.parse(text);
