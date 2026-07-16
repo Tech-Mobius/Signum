@@ -1,4 +1,15 @@
 import * as sqlite from '../db/sqlite';
+import * as base64js from 'base64-js';
+
+const btoa = (str: string): string => {
+  const bytes = new Uint8Array(str.split('').map(c => c.charCodeAt(0)));
+  return base64js.fromByteArray(bytes);
+};
+
+const atob = (str: string): string => {
+  const bytes = base64js.toByteArray(str);
+  return String.fromCharCode(...bytes);
+};
 
 const subtle = (typeof globalThis !== 'undefined' && (globalThis as any).crypto?.subtle) || 
                (typeof window !== 'undefined' && window.crypto?.subtle);

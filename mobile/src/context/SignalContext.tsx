@@ -6,12 +6,24 @@ import { strToU8, deflateSync, inflateSync, strFromU8 } from 'fflate';
 import * as base64js from 'base64-js';
 registerGlobals();
 
+const btoa = (str: string): string => {
+  const bytes = new Uint8Array(str.split('').map(c => c.charCodeAt(0)));
+  return base64js.fromByteArray(bytes);
+};
+
+const atob = (str: string): string => {
+  const bytes = base64js.toByteArray(str);
+  return String.fromCharCode(...bytes);
+};
+
 const utf8Btoa = (str: string): string => {
-  return btoa(unescape(encodeURIComponent(str)));
+  const bytes = new TextEncoder().encode(str);
+  return base64js.fromByteArray(bytes);
 };
 
 const utf8Atob = (str: string): string => {
-  return decodeURIComponent(escape(atob(str)));
+  const bytes = base64js.toByteArray(str);
+  return new TextDecoder().decode(bytes);
 };
 
 export async function compressPayload(payload: any): Promise<string> {
