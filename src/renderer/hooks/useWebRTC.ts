@@ -505,6 +505,17 @@ export function useWebRTC({
       }
       
       peerDisplayNameCache.current.set(realPeerId, realDisplayName);
+
+      if (window.api) {
+        window.api.webrtcStatus(
+          realPeerId,
+          'connected',
+          'direct',
+          0,
+          realDisplayName,
+          tempId
+        );
+      }
       
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }));
       addLog('WebRTC', `Manually connected to peer ${realDisplayName} (${realPeerId})`);

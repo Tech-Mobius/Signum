@@ -276,9 +276,26 @@ export function SignalProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (payload.type === 'message') {
-        let messageData = payload.data;
-        
+      if (payload.type === 'mesh-message') {
+        let messageData = payload.message;
+        if (!messageData) return;
+
+        if (messageData.type === 'status') {
+          try {
+            const syncStatus = JSON.parse(messageData.payload);
+            await sqlite.run(
+              `INSERT OR REPLACE INTO peer_statuses (peer_id, display_name, status, location, timestamp) VALUES (?, ?, ?, ?, ?)`,
+              [syncStatus.peer_id, syncStatus.display_name, syncStatus.status, syncStatus.location || null, syncStatus.timestamp]
+            );
+            const reloadedStatuses = await sqlite.query<sqlite.PeerStatus>(`SELECT * FROM peer_statuses ORDER BY timestamp DESC`);
+            setStatuses(reloadedStatuses);
+            addLog('Router', `Received status check-in for peer: ${syncStatus.display_name} -> ${syncStatus.status}`);
+          } catch (e: any) {
+            addLog('Error', `Failed to process status sync message: ${e.message}`, 'WARNING');
+          }
+          return;
+        }
+
         if (messageData.encrypted) {
           const key = sharedKeys.current.get(pId);
           if (key) {
@@ -314,17 +331,6 @@ export function SignalProvider({ children }: { children: React.ReactNode }) {
         const reloaded = await sqlite.query<sqlite.DBMessage>(`SELECT * FROM messages ORDER BY timestamp ASC`);
         setMessages(reloaded);
         addLog('Router', `Received ${messageData.type} message from ${messageData.senderName}`);
-      }
-
-      if (payload.type === 'status-sync') {
-        const syncStatus = payload.status;
-        await sqlite.run(
-          `INSERT OR REPLACE INTO peer_statuses (peer_id, display_name, status, location, timestamp) VALUES (?, ?, ?, ?, ?)`,
-          [syncStatus.peer_id, syncStatus.display_name, syncStatus.status, syncStatus.location || null, syncStatus.timestamp]
-        );
-        const reloadedStatuses = await sqlite.query<sqlite.PeerStatus>(`SELECT * FROM peer_statuses ORDER BY timestamp DESC`);
-        setStatuses(reloadedStatuses);
-        addLog('Router', `Synchronized status for peer: ${syncStatus.display_name} -> ${syncStatus.status}`);
       }
     };
 
@@ -461,7 +467,7 @@ export function SignalProvider({ children }: { children: React.ReactNode }) {
     const reloaded = await sqlite.query<sqlite.DBMessage>(`SELECT * FROM messages ORDER BY timestamp ASC`);
     setMessages(reloaded);
 
-    const envelope = { type: 'message', data: rawMessage };
+    const envelope = { type: 'mesh-message', message: rawMessage };
     if (recipientId === 'broadcast') {
       dataChannels.current.forEach(channel => {
         if (channel.readyState === 'open') {
@@ -483,29 +489,43 @@ export function SignalProvider({ children }: { children: React.ReactNode }) {
   const updateStatus = async (status: 'safe' | 'need-help' | 'unknown', location?: string) => {
     if (!identity) return;
     try {
+      const timestamp = Date.now();
+      const checkinData = {
+        peer_id: identity.peerId,
+        display_name: identity.username,
+        status,
+        location: location || null,
+        timestamp
+      };
+
       await sqlite.run(
         `INSERT OR REPLACE INTO peer_statuses (peer_id, display_name, status, location, timestamp) VALUES (?, ?, ?, ?, ?)`,
-        [identity.peerId, identity.username, status, location || null, Date.now()]
+        [identity.peerId, identity.username, status, location || null, timestamp]
       );
 
       const reloadedStatuses = await sqlite.query<sqlite.PeerStatus>(`SELECT * FROM peer_statuses ORDER BY timestamp DESC`);
       setStatuses(reloadedStatuses);
       addLog('Status', `Checked in as: ${status.toUpperCase()} (${location || 'No Location'})`);
 
-      const syncPacket = {
-        type: 'status-sync',
-        status: {
-          peer_id: identity.peerId,
-          display_name: identity.username,
-          status,
-          location,
-          timestamp: Date.now()
-        }
+      const rawMessage = {
+        id: `status-${Math.random().toString(36).substring(2, 10)}`,
+        senderId: identity.peerId,
+        senderName: identity.username,
+        recipientId: 'broadcast',
+        type: 'status',
+        payload: JSON.stringify(checkinData),
+        timestamp,
+        ttl: 5,
+        visitedNodes: [identity.peerId],
+        hops: 0,
+        priority: 1
       };
+
+      const envelope = { type: 'mesh-message', message: rawMessage };
 
       dataChannels.current.forEach(channel => {
         if (channel.readyState === 'open') {
-          chunkedSend(channel, syncPacket);
+          chunkedSend(channel, envelope);
         }
       });
 
@@ -682,6 +702,15 @@ export function SignalProvider({ children }: { children: React.ReactNode }) {
       }
 
       peerDisplayNameCache.current.set(realPeerId, realDisplayName);
+      
+      await sqlite.run(`DELETE FROM peers WHERE id = ?`, [tempId]);
+      await sqlite.run(
+        `INSERT OR REPLACE INTO peers (id, display_name, last_seen, status) VALUES (?, ?, ?, 'connected')`,
+        [realPeerId, realDisplayName, Date.now()]
+      );
+      const reloadedPeers = await sqlite.query<sqlite.PeerRecord>(`SELECT * FROM peers ORDER BY last_seen DESC`);
+      setPeers(reloadedPeers);
+
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }));
       addLog('WebRTC', `Manually connected to peer: ${realDisplayName} (${realPeerId})`);
 
