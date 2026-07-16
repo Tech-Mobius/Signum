@@ -8,8 +8,10 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     getIdentity: () => electron_1.ipcRenderer.invoke('identity:get'),
     getHistory: () => electron_1.ipcRenderer.invoke('history:get'),
     getFingerprint: () => electron_1.ipcRenderer.invoke('identity:get-fingerprint'),
+    generateQRCode: (text) => electron_1.ipcRenderer.invoke('qr:generate', { text }),
     // Messaging
-    sendMessage: (recipientId, type, payload, attachmentMeta) => electron_1.ipcRenderer.send('message:send', { recipientId, type, payload, attachmentMeta }),
+    sendMessage: (recipientId, type, payload, attachmentMeta, messageId, timestamp) => electron_1.ipcRenderer.send('message:send', { recipientId, type, payload, attachmentMeta, messageId, timestamp }),
+    saveDecryptedMessage: (id, decryptedPayload) => electron_1.ipcRenderer.send('message:save-decrypted', { id, decryptedPayload }),
     onMessageReceived: (callback) => {
         const subscription = (_event, msg) => callback(msg);
         electron_1.ipcRenderer.on('message:received', subscription);
@@ -21,12 +23,14 @@ electron_1.contextBridge.exposeInMainWorld('api', {
         return () => electron_1.ipcRenderer.removeListener('message:delivered', subscription);
     },
     // Peer & Connection Management
-    manualConnect: (address, port) => electron_1.ipcRenderer.send('peer:connect-manual', { address, port }),
     onPeerListUpdated: (callback) => {
         const subscription = (_event, peers) => callback(peers);
         electron_1.ipcRenderer.on('peer:list', subscription);
         return () => electron_1.ipcRenderer.removeListener('peer:list', subscription);
     },
+    // File operations
+    saveConnectionFile: (defaultName, content) => electron_1.ipcRenderer.invoke('file:save-dialog', { defaultName, content }),
+    loadConnectionFile: () => electron_1.ipcRenderer.invoke('file:open-dialog'),
     // Status Check-in
     updateStatus: (status, location) => electron_1.ipcRenderer.send('status:update', { status, location }),
     onStatusSync: (callback) => {
@@ -61,14 +65,13 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     // WebRTC bridges — allow Renderer to send/receive WebRTC signaling and data
     // These are needed because App.tsx manages WebRTC connections in the renderer
     webrtcSend: (peerId, message) => electron_1.ipcRenderer.send('webrtc:send-to-peer', { peerId, message }),
-    webrtcStatus: (peerId, status) => electron_1.ipcRenderer.send('webrtc:status', { peerId, status }),
+    webrtcStatus: (peerId, status, address, port, displayName, tempId) => electron_1.ipcRenderer.send('webrtc:status', { peerId, status, address, port, displayName, tempId }),
     webrtcReceived: (message) => electron_1.ipcRenderer.send('webrtc:received', { message }),
     onWebrtcSend: (callback) => {
         const subscription = (_event, data) => callback(data);
         electron_1.ipcRenderer.on('webrtc:send', subscription);
         return () => electron_1.ipcRenderer.removeListener('webrtc:send', subscription);
     },
-    forwardSignal: (address, port, signal) => electron_1.ipcRenderer.invoke('webrtc:forward-signal', { address, port, signal }),
     webrtcKeyHandshake: (peerId, publicKeyJwk) => electron_1.ipcRenderer.send('webrtc:key-handshake', { peerId, publicKeyJwk }),
     // Peer verification
     verifyPeerFingerprint: (peerId, fingerprint, displayName) => electron_1.ipcRenderer.invoke('peer:verify-fingerprint', { peerId, fingerprint, displayName }),
@@ -76,9 +79,6 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     getPeerFingerprint: (peerId) => electron_1.ipcRenderer.invoke('peer:get-fingerprint', { peerId }),
     // ICE Servers
     getIceServers: () => electron_1.ipcRenderer.invoke('webrtc:get-ice-servers'),
-    // TURN Configuration
-    getTurnConfig: () => electron_1.ipcRenderer.invoke('settings:get-turn-config'),
-    setTurnConfig: (config) => electron_1.ipcRenderer.send('settings:set-turn-config', config),
     // Window controls
     minimizeWindow: () => electron_1.ipcRenderer.send('window:minimize'),
     maximizeWindow: () => electron_1.ipcRenderer.send('window:maximize'),

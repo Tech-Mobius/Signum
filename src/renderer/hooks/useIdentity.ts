@@ -13,7 +13,6 @@ export function useIdentity() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if running in Electron
     if (!window.api) {
       setLoading(false);
       return;
@@ -38,7 +37,6 @@ export function useIdentity() {
   const setUsername = (username: string) => {
     if (!window.api) return;
     window.api.setUsername(username);
-    // Reload identity
     window.api.getIdentity().then(setIdentity);
   };
 
@@ -50,7 +48,6 @@ export function useIdentity() {
   const importBackup = async (backupData: string, passphrase: string): Promise<string> => {
     if (!window.api) throw new Error('Electron context not available');
     const res = await window.api.importIdentity(backupData, passphrase);
-    // Reload identity
     const id = await window.api.getIdentity();
     setIdentity(id);
     setFingerprint(res.fingerprint);

@@ -17,12 +17,12 @@ export interface DBMessage {
   payload: string;
   timestamp: number;
   ttl: number;
-  visited_nodes: string; // JSON string of string[]
+  visited_nodes: string; 
   hops: number;
-  delivered: number; // 0 or 1
-  attachment_meta?: string; // JSON string
+  delivered: number; 
+  attachment_meta?: string; 
   priority: number;
-  acknowledged?: number; // 0 or 1
+  acknowledged?: number; 
   ack_timestamp?: number;
   retry_count?: number;
   signature?: string;
@@ -31,7 +31,7 @@ export interface DBMessage {
 export interface MeshMessage {
   id: string;
   senderId: string;
-  senderName?: string; // Optional sender name for display
+  senderName?: string; 
   recipientId: string;
   type: 'text' | 'sos' | 'file' | 'status';
   payload: string;
@@ -80,60 +80,51 @@ export interface VerifiedPeerResult {
 }
 
 export interface IPCAPI {
-  // Identity
   setUsername: (username: string) => void;
   getIdentity: () => Promise<{ peerId: string; username: string; address: string; port: number }>;
   getHistory: () => Promise<{ messages: MeshMessage[]; statuses: PeerStatus[] }>;
   getFingerprint: () => Promise<string>;
+  generateQRCode: (text: string) => Promise<string>;
 
-  // Messaging
-  sendMessage: (recipientId: string, type: 'text' | 'sos' | 'file', payload: string, attachmentMeta?: any) => void;
+  sendMessage: (recipientId: string, type: 'text' | 'sos' | 'file', payload: string, attachmentMeta?: any, messageId?: string, timestamp?: number) => void;
+  saveDecryptedMessage: (id: string, decryptedPayload: string) => void;
   onMessageReceived: (callback: (message: any) => void) => () => void;
   onMessageDelivered: (callback: (data: { messageId: string; peerId: string }) => void) => () => void;
 
-  // Peer & Connection Management
-  manualConnect: (address: string, port: number) => void;
   onPeerListUpdated: (callback: (peers: PeerInfo[]) => void) => () => void;
 
-  // Status Check-in
+  saveConnectionFile: (defaultName: string, content: string) => Promise<boolean>;
+  loadConnectionFile: () => Promise<string | null>;
+
   updateStatus: (status: 'safe' | 'need-help' | 'unknown', location?: string) => void;
   onStatusSync: (callback: (statuses: PeerStatus[]) => void) => () => void;
 
-  // Topology & Routing Visualization
   onTopologyUpdated: (callback: (topology: any) => void) => () => void;
   onMessageHop: (callback: (hop: { messageId: string; fromNode: string; toNode: string; type: string }) => void) => () => void;
 
-  // Offline Simulation
   toggleOffline: (offline: boolean) => void;
   onSimStatusUpdated: (callback: (status: { offline: boolean }) => void) => () => void;
 
-  // Debug Logs
   onDebugLog: (callback: (log: DebugLog) => void) => () => void;
 
-  // WebRTC bridges
   webrtcSend: (peerId: string, message: any) => void;
-  webrtcStatus: (peerId: string, status: 'connected' | 'offline') => void;
+  webrtcStatus: (peerId: string, status: 'connected' | 'offline', address?: string, port?: number, displayName?: string, tempId?: string) => void;
   webrtcReceived: (message: any) => void;
   onWebrtcSend: (callback: (data: { peerId: string; message: any }) => void) => () => void;
-  forwardSignal: (address: string, port: number, signal: any) => Promise<void>;
   webrtcKeyHandshake: (peerId: string, publicKeyJwk: any) => void;
 
-  // Peer verification
   verifyPeerFingerprint: (peerId: string, fingerprint: string, displayName?: string) => Promise<VerifiedPeerResult>;
   trustPeerFingerprint: (peerId: string, fingerprint: string, displayName?: string) => void;
   getPeerFingerprint: (peerId: string) => Promise<{ fingerprint: string; trusted: boolean } | null>;
 
-  // ICE & TURN Configs
   getIceServers: () => Promise<{ iceServers: IceServerConfig[] }>;
   getTurnConfig: () => Promise<TurnConfig>;
   setTurnConfig: (config: Partial<TurnConfig>) => void;
 
-  // Window Controls
   minimizeWindow: () => void;
   maximizeWindow: () => void;
   closeWindow: () => void;
 
-  // Identity backup/restore
   exportIdentity: (passphrase: string) => Promise<string>;
   importIdentity: (backupData: string, passphrase: string) => Promise<{ fingerprint: string }>;
 }

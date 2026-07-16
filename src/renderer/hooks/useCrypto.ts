@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 
-// Helper to convert base64 to Blob offline without fetch
 function base64ToBlob(base64: string, mimeType: string): Blob {
   const byteCharacters = atob(base64);
   const byteArrays = [];
@@ -20,27 +19,29 @@ export function useCrypto(addLog: (cat: string, msg: string) => void) {
   const ecdhKeys = useRef<any>(null);
   const sharedKeys = useRef<Map<string, CryptoKey>>(new Map());
   const peerPublicKeys = useRef<Map<string, string>>(new Map());
+  const keysPromise = useRef<Promise<any> | null>(null);
 
-  // Generate ECDH Key Pair on startup
   useEffect(() => {
     async function generateKeys() {
-      try {
-        const pair = await window.crypto.subtle.generateKey(
-          { name: 'ECDH', namedCurve: 'P-256' },
-          false,
-          ['deriveKey', 'deriveBits']
-        );
-        ecdhKeys.current = pair;
-        addLog('Crypto', 'Generated session ephemeral ECDH keypair');
-      } catch (err) {
-        console.error('Failed to generate crypto keys:', err);
-        addLog('Crypto', 'Error generating ephemeral ECDH keys');
-      }
+      const pair = await window.crypto.subtle.generateKey(
+        { name: 'ECDH', namedCurve: 'P-256' },
+        false,
+        ['deriveKey', 'deriveBits']
+      );
+      ecdhKeys.current = pair;
+      addLog('Crypto', 'Generated session ephemeral ECDH keypair');
+      return pair;
     }
-    generateKeys();
+    keysPromise.current = generateKeys().catch(err => {
+      console.error('Failed to generate crypto keys:', err);
+      addLog('Crypto', 'Error generating ephemeral ECDH keys');
+    });
   }, []);
 
   const getHandshakeData = async (): Promise<string> => {
+    if (keysPromise.current) {
+      await keysPromise.current;
+    }
     if (!ecdhKeys.current) throw new Error('Keys not generated');
     const jwkPub = await window.crypto.subtle.exportKey('jwk', ecdhKeys.current.publicKey);
     return JSON.stringify(jwkPub);
@@ -52,7 +53,6 @@ export function useCrypto(addLog: (cat: string, msg: string) => void) {
       peerPublicKeys.current.set(peerId, peerJwkString);
 
       if (ecdhKeys.current) {
-        // 1. Import peer's public key
         const peerPub = await window.crypto.subtle.importKey(
           'jwk',
           peerJwk,
@@ -61,14 +61,12 @@ export function useCrypto(addLog: (cat: string, msg: string) => void) {
           []
         );
 
-        // 2. Derive shared bits from ECDH
         const rawSharedSecret = await window.crypto.subtle.deriveBits(
           { name: 'ECDH', public: peerPub },
           ecdhKeys.current.privateKey,
           256
         );
 
-        // 3. Import shared secret as HKDF master key
         const hkdfMasterKey = await window.crypto.subtle.importKey(
           'raw',
           rawSharedSecret,
@@ -77,12 +75,11 @@ export function useCrypto(addLog: (cat: string, msg: string) => void) {
           ['deriveKey']
         );
 
-        // 4. Derive AES-GCM session key via HKDF
         const sessionKey = await window.crypto.subtle.deriveKey(
           {
             name: 'HKDF',
             hash: 'SHA-256',
-            salt: new Uint8Array(32), // empty salt
+            salt: new Uint8Array(32), 
             info: new TextEncoder().encode('signal-mesh-session-secret')
           },
           hkdfMasterKey,
@@ -104,10 +101,19 @@ export function useCrypto(addLog: (cat: string, msg: string) => void) {
   };
 
   const encryptPayload = async (peerId: string, message: any): Promise<any> => {
-    if (message.type === 'signal' || message.type === 'status' || !sharedKeys.current.has(peerId)) {
+    if (message.encrypted) {
       return message;
     }
-    const key = sharedKeys.current.get(peerId);
+
+    if (message.type === 'signal' || message.type === 'status' || !message.recipientId || message.recipientId === 'broadcast') {
+      return message;
+    }
+
+    const recipientId = message.recipientId;
+    if (!sharedKeys.current.has(recipientId)) {
+      return message;
+    }
+    const key = sharedKeys.current.get(recipientId);
     if (!key) return message;
 
     const iv = window.crypto.getRandomValues(new Uint8Array(12));
@@ -130,7 +136,7 @@ export function useCrypto(addLog: (cat: string, msg: string) => void) {
     const peerId = message.senderId;
     const key = sharedKeys.current.get(peerId);
     if (!key) {
-      return message.payload; // Fallback
+      return message.payload; 
     }
 
     const { iv, ciphertext } = JSON.parse(message.payload);

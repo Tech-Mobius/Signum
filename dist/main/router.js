@@ -21,9 +21,11 @@ function dbToMesh(dbMsg) {
     return {
         id: dbMsg.id,
         senderId: dbMsg.sender_id,
+        senderName: dbMsg.sender_name,
         recipientId: dbMsg.recipient_id,
         type: dbMsg.type,
         payload: dbMsg.payload,
+        encrypted: dbMsg.encrypted === 1,
         timestamp: dbMsg.timestamp,
         ttl: dbMsg.ttl,
         visitedNodes: JSON.parse(dbMsg.visited_nodes),
@@ -38,9 +40,11 @@ function meshToDb(meshMsg, delivered = 0) {
     return {
         id: meshMsg.id,
         sender_id: meshMsg.senderId,
+        sender_name: meshMsg.senderName,
         recipient_id: meshMsg.recipientId,
         type: meshMsg.type,
         payload: meshMsg.payload,
+        encrypted: meshMsg.encrypted ? 1 : 0,
         timestamp: meshMsg.timestamp,
         ttl: meshMsg.ttl,
         visited_nodes: JSON.stringify(meshMsg.visitedNodes),
@@ -56,6 +60,15 @@ function meshToDb(meshMsg, delivered = 0) {
  * Handles both outgoing messages and incoming relayed messages.
  */
 function handleIncomingMessage(msg, isSelfOriginated = false) {
+    // Defensively initialize potentially missing or undefined properties
+    if (msg.hops === undefined)
+        msg.hops = 0;
+    if (msg.ttl === undefined)
+        msg.ttl = 5;
+    if (msg.priority === undefined)
+        msg.priority = 0;
+    if (!msg.visitedNodes)
+        msg.visitedNodes = [];
     // 1. Deduplicate: check if message ID already processed
     if ((0, messages_1.messageExists)(msg.id) && !isSelfOriginated) {
         console.log(`[Router] Message ${msg.id} already exists. Deduplicated (dropped).`);

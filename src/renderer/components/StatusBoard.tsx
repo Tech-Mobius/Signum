@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Heart, MapPin, CheckCircle, AlertTriangle, HelpCircle } from 'lucide-react';
 
 interface StatusBoardProps {
@@ -6,9 +6,29 @@ interface StatusBoardProps {
   onCheckIn: (status: 'safe' | 'need-help' | 'unknown', location?: string) => void;
 }
 
+function formatTimeAgo(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  if (diff < 5000) return 'Just now';
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 export default function StatusBoard({ statuses, onCheckIn }: StatusBoardProps) {
   const [myStatus, setMyStatus] = useState<'safe' | 'need-help'>('safe');
   const [myLocation, setMyLocation] = useState('');
+  const [ticker, setTicker] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTicker(prev => prev + 1);
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleCheckIn = (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,7 +46,7 @@ export default function StatusBoard({ statuses, onCheckIn }: StatusBoardProps) {
         );
       case 'need-help':
         return (
-          <span className="flex items-center gap-1 text-[10px] text-amber-sos font-semibold bg-amber-sos/10 px-1.5 py-0.5 rounded border border-amber-sos/20 flex-shrink-0">
+          <span className="flex items-center gap-1 text-[10px] text-amber-sos font-semibold bg-amber-sos/10 px-1.5 py-0.5 rounded border border-amber-sos/20 flex-shrink-0 animate-pulse">
             <AlertTriangle className="w-3 h-3" /> HELP
           </span>
         );
@@ -41,10 +61,10 @@ export default function StatusBoard({ statuses, onCheckIn }: StatusBoardProps) {
 
   return (
     <div className="flex flex-col gap-2.5">
-      {/* Own Status check-in form */}
+      {}
       <form
         onSubmit={handleCheckIn}
-        className="flex flex-col gap-2 p-2.5 bg-slate-base/40 rounded-lg border border-slate-light/50"
+        className="flex flex-col gap-2 p-2.5 bg-slate-base/40 rounded-lg border border-slate-light/50 transition-all hover:border-slate-light"
       >
         <div className="text-[10px] text-fog font-semibold uppercase tracking-wider">My Status</div>
         <select
@@ -67,7 +87,7 @@ export default function StatusBoard({ statuses, onCheckIn }: StatusBoardProps) {
         </button>
       </form>
 
-      {/* Status list */}
+      {}
       <div className="flex flex-col gap-1 max-h-[200px] overflow-y-auto">
         {statuses.length === 0 ? (
           <div className="text-center py-4 text-[10px] text-fog/60 font-mono italic">
@@ -86,7 +106,7 @@ export default function StatusBoard({ statuses, onCheckIn }: StatusBoardProps) {
                   {item.location || 'Not specified'}
                 </span>
                 <span className="flex-shrink-0">
-                  {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {formatTimeAgo(item.timestamp)}
                 </span>
               </div>
             </div>

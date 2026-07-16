@@ -18,11 +18,15 @@ function initSignalingServer(onSignal) {
         // Create an HTTP server so we can listen on a dynamic port easily
         const server = http_1.default.createServer();
         wss = new ws_1.WebSocketServer({ server });
-        wss.on('connection', (ws) => {
+        wss.on('connection', (ws, req) => {
+            // Extract sender's IP address from the WebSocket upgrade request
+            const rawIp = req.socket.remoteAddress || '';
+            // Normalize IPv6-mapped IPv4 addresses (e.g. ::ffff:192.168.1.5 -> 192.168.1.5)
+            const senderAddress = rawIp.replace(/^::ffff:/, '');
             ws.on('message', (message) => {
                 try {
                     const data = JSON.parse(message.toString());
-                    onSignalReceivedCallback(data);
+                    onSignalReceivedCallback(data, senderAddress);
                 }
                 catch (err) {
                     console.error('Failed to parse signaling message:', err);

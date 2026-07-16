@@ -21,7 +21,6 @@ const CATEGORY_COLORS: Record<string, string> = {
 export default function DebugPanel({ logs }: DebugPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to top (newest log is prepended, so top = newest)
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = 0;
@@ -30,20 +29,23 @@ export default function DebugPanel({ logs }: DebugPanelProps) {
 
   if (logs.length === 0) {
     return (
-      <div className="text-[10px] text-fog/50 font-mono italic py-2">
+      <div className="text-[10px] text-fog/50 font-mono italic py-2 select-none">
         Waiting for network activity...
       </div>
     );
   }
 
   return (
-    <div ref={containerRef} className="flex flex-col gap-0">
+    <div 
+      ref={containerRef} 
+      className="flex flex-col gap-0 h-full overflow-y-auto pr-1"
+    >
       {logs.map((log, idx) => {
         const time = new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         const color = CATEGORY_COLORS[log.category] || 'text-fog';
 
         return (
-          <div key={idx} className="log-row">
+          <div key={idx} className="log-row animate-[slide-in-down_0.15s_ease-out]">
             <span className="text-fog/40 flex-shrink-0">[{time}]</span>
             <span className={`font-semibold flex-shrink-0 ${color}`}>
               [{log.category?.toUpperCase()}]

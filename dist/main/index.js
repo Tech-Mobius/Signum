@@ -38,23 +38,20 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
-const os_1 = __importDefault(require("os"));
 const crypto_1 = __importDefault(require("crypto"));
+const fs_1 = __importDefault(require("fs"));
+const qrcode_1 = __importDefault(require("qrcode"));
 const db_1 = require("./db");
 const messagesRepo = __importStar(require("./db/repositories/messages"));
 const statusesRepo = __importStar(require("./db/repositories/statuses"));
 const settingsRepo = __importStar(require("./db/repositories/settings"));
 const peersRepo = __importStar(require("./db/repositories/peers"));
 const cryptoKeysRepo = __importStar(require("./db/repositories/cryptoKeys"));
-const signaling_1 = require("./signaling");
-const discovery_1 = require("./discovery");
 const router_1 = require("./router");
 const crypto_2 = require("./crypto");
 let mainWindow = null;
 let ourPeerId = '';
 let ourUsername = '';
-let ourIpAddress = '';
-let ourSignalingPort = 0;
 let isSimulatedOffline = false;
 // In-memory cache of discovered/connected peers
 // peerId -> DiscoveredPeer & { status: 'connected' | 'searching' | 'offline' }
@@ -72,21 +69,6 @@ function sendDebugLog(category, message, data) {
     if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('debug:log', log);
     }
-}
-// Get local IPv4 address
-function getLocalIp() {
-    const interfaces = os_1.default.networkInterfaces();
-    for (const name of Object.keys(interfaces)) {
-        const list = interfaces[name];
-        if (list) {
-            for (const info of list) {
-                if (info.family === 'IPv4' && !info.internal) {
-                    return info.address;
-                }
-            }
-        }
-    }
-    return '127.0.0.1';
 }
 function createWindow() {
     mainWindow = new electron_1.BrowserWindow({
@@ -152,33 +134,7 @@ electron_1.app.whenReady().then(async () => {
     ourPeerId = cachedPeerId;
     // Load Username
     ourUsername = settingsRepo.getConfig('username') || '';
-    ourIpAddress = getLocalIp();
-    // 2. Start WebSocket Signaling Server
-    try {
-        ourSignalingPort = await (0, signaling_1.initSignalingServer)((signalData) => {
-            // Received signaling data from another peer
-            if (isSimulatedOffline)
-                return;
-            sendDebugLog('Signaling', `Received signal (${signalData.type}) from ${signalData.senderName} (${signalData.senderId})`);
-            // Forward to renderer to handle WebRTC connection
-            if (mainWindow) {
-                mainWindow.webContents.send('message:received', {
-                    id: crypto_1.default.randomUUID(),
-                    senderId: signalData.senderId,
-                    senderName: signalData.senderName,
-                    type: 'signal',
-                    payload: JSON.stringify(signalData),
-                    timestamp: Date.now(),
-                    hops: 0
-                });
-            }
-        });
-    }
-    catch (err) {
-        console.error('Failed to start signaling server:', err);
-        sendDebugLog('Error', 'Failed to start signaling server', err.message);
-    }
-    // 3. Initialize Identity Keys (ECDH)
+    // 2. Initialize Identity Keys (ECDH)
     try {
         await (0, crypto_2.getOrCreateIdentityKeys)();
         const fingerprint = await (0, crypto_2.getIdentityFingerprint)();
@@ -187,7 +143,7 @@ electron_1.app.whenReady().then(async () => {
     catch (err) {
         sendDebugLog('Error', 'Failed to initialize identity keys', err.message);
     }
-    // 4. Initialize Router
+    // 3. Initialize Router
     (0, router_1.initRouter)(ourPeerId, 
     // Callback to get connected peers from memory
     () => {
@@ -220,51 +176,21 @@ electron_1.app.whenReady().then(async () => {
             mainWindow.webContents.send('message:received', message);
         }
     });
-    // 5. Create Window
+    // 4. Create Window
     createWindow();
-    // 6. Initialize Discovery if username is set
-    if (ourUsername) {
-        startMeshServices();
-    }
     electron_1.app.on('activate', () => {
         if (electron_1.BrowserWindow.getAllWindows().length === 0)
             createWindow();
     });
 });
-function startMeshServices() {
-    sendDebugLog('Mesh', `Starting discovery for ${ourUsername} (${ourPeerId})`);
-    (0, discovery_1.initDiscovery)(ourPeerId, ourUsername, ourSignalingPort, 
-    // Peer Found (mDNS 'up')
-    (peer) => {
-        if (isSimulatedOffline)
-            return;
-        const existing = peerCache.get(peer.id);
-        peerCache.set(peer.id, {
-            ...peer,
-            status: existing?.status || 'searching'
-        });
-        sendDebugLog('Discovery', `Peer UP: ${peer.displayName} at ${peer.address}:${peer.port}`);
-        // Notify Renderer to show and establish WebRTC connection
-        sendPeerListUpdate();
-    }, 
-    // Peer Lost (mDNS 'down')
-    (lostPeerId) => {
-        const peer = peerCache.get(lostPeerId);
-        if (peer) {
-            peer.status = 'offline';
-            sendDebugLog('Discovery', `Peer DOWN: ${peer.displayName}`);
-            sendPeerListUpdate();
-        }
-    });
-}
 function sendPeerListUpdate() {
     if (!mainWindow)
         return;
     const list = Array.from(peerCache.values()).map(p => ({
         id: p.id,
         displayName: p.displayName,
-        address: p.address,
-        port: p.port,
+        address: p.address || 'direct',
+        port: p.port || 0,
         status: isSimulatedOffline ? 'offline' : p.status
     }));
     mainWindow.webContents.send('peer:list', list);
@@ -275,60 +201,79 @@ electron_1.ipcMain.on('identity:set-username', (_event, username) => {
     ourUsername = username;
     settingsRepo.setConfig('username', username);
     sendDebugLog('Identity', `Username set to: ${username}`);
-    if (ourSignalingPort > 0) {
-        startMeshServices();
-    }
 });
 electron_1.ipcMain.handle('identity:get', () => {
     return {
         peerId: ourPeerId,
         username: ourUsername,
-        address: ourIpAddress,
-        port: ourSignalingPort
+        address: 'direct',
+        port: 0
     };
 });
 // Get identity fingerprint
 electron_1.ipcMain.handle('identity:get-fingerprint', async () => {
     return (0, crypto_2.getIdentityFingerprint)();
 });
-// Manual Connection Fallback
-electron_1.ipcMain.on('peer:connect-manual', (_event, { address, port }) => {
-    sendDebugLog('Mesh', `Manual connection requested to ${address}:${port}`);
-    // Create a temporary peer entry
-    const tempId = `manual-${crypto_1.default.randomBytes(4).toString('hex')}`;
-    peerCache.set(tempId, {
-        id: tempId,
-        displayName: `Peer @ ${address}`,
-        address,
-        port,
-        status: 'searching'
-    });
-    sendPeerListUpdate();
-    // Send a signal directly to initiate connection
-    if (mainWindow) {
-        // Pass to renderer to generate offer SDP and start signaling
-        mainWindow.webContents.send('message:received', {
-            id: crypto_1.default.randomUUID(),
-            senderId: tempId,
-            senderName: `Peer @ ${address}`,
-            type: 'signal-manual-initiate',
-            payload: JSON.stringify({ address, port, tempId }),
-            timestamp: Date.now(),
-            hops: 0
-        });
+// Generate QR Code data URL
+electron_1.ipcMain.handle('qr:generate', async (_event, { text }) => {
+    try {
+        return await qrcode_1.default.toDataURL(text);
+    }
+    catch (err) {
+        sendDebugLog('Error', `Failed to generate QR code: ${err.message}`);
+        throw err;
     }
 });
+// File-based Connection Dialogs
+electron_1.ipcMain.handle('file:save-dialog', async (_event, { defaultName, content }) => {
+    if (!mainWindow)
+        return false;
+    const { filePath } = await electron_1.dialog.showSaveDialog(mainWindow, {
+        defaultPath: defaultName,
+        filters: [{ name: 'Signum Connection File', extensions: ['sig'] }]
+    });
+    if (filePath) {
+        try {
+            fs_1.default.writeFileSync(filePath, content, 'utf8');
+            return true;
+        }
+        catch (err) {
+            sendDebugLog('Error', `Failed to save connection file: ${err.message}`);
+            return false;
+        }
+    }
+    return false;
+});
+electron_1.ipcMain.handle('file:open-dialog', async () => {
+    if (!mainWindow)
+        return null;
+    const { filePaths } = await electron_1.dialog.showOpenDialog(mainWindow, {
+        filters: [{ name: 'Signum Connection File', extensions: ['sig'] }],
+        properties: ['openFile']
+    });
+    if (filePaths && filePaths.length > 0) {
+        try {
+            return fs_1.default.readFileSync(filePaths[0], 'utf8');
+        }
+        catch (err) {
+            sendDebugLog('Error', `Failed to read connection file: ${err.message}`);
+            return null;
+        }
+    }
+    return null;
+});
 // Messaging
-electron_1.ipcMain.on('message:send', (_event, { recipientId, type, payload, attachmentMeta }) => {
+electron_1.ipcMain.on('message:send', (_event, { recipientId, type, payload, attachmentMeta, messageId, timestamp }) => {
     if (isSimulatedOffline)
         return;
     const meshMsg = {
-        id: crypto_1.default.randomUUID(),
+        id: messageId || crypto_1.default.randomUUID(),
         senderId: ourPeerId,
+        senderName: ourUsername || 'Anonymous',
         recipientId,
         type,
         payload,
-        timestamp: Date.now(),
+        timestamp: timestamp || Date.now(),
         ttl: 5,
         visitedNodes: [ourPeerId],
         hops: 0,
@@ -339,26 +284,32 @@ electron_1.ipcMain.on('message:send', (_event, { recipientId, type, payload, att
     // Save to DB and broadcast/route
     (0, router_1.handleIncomingMessage)(meshMsg, true);
 });
-// WebRTC signal relay from Renderer to peer
-electron_1.ipcMain.handle('webrtc:forward-signal', async (_event, { address, port, signal }) => {
-    if (isSimulatedOffline)
-        return;
-    try {
-        const payload = {
-            senderId: ourPeerId,
-            senderName: ourUsername || 'Anonymous',
-            type: signal.type,
-            signal
-        };
-        await (0, signaling_1.sendSignalToPeer)(address, port, payload);
-    }
-    catch (err) {
-        sendDebugLog('Error', `Failed to send signal to ${address}:${port}`, err.message);
+electron_1.ipcMain.on('message:save-decrypted', (_event, { id, decryptedPayload }) => {
+    const msg = messagesRepo.getMessageById(id);
+    if (msg) {
+        msg.payload = decryptedPayload;
+        msg.encrypted = 0; // Mark as decrypted/plaintext
+        messagesRepo.saveMessage(msg);
+        sendDebugLog('Crypto', `Saved decrypted message ${id} to database history`);
     }
 });
 // Update Peer connection status in cache (from Renderer WebRTC manager)
-electron_1.ipcMain.on('webrtc:status', (_event, { peerId, status }) => {
-    const peer = peerCache.get(peerId);
+electron_1.ipcMain.on('webrtc:status', (_event, { peerId, status, address, port, displayName, tempId }) => {
+    if (tempId) {
+        peerCache.delete(tempId);
+    }
+    let peer = peerCache.get(peerId);
+    if (!peer && status === 'connected') {
+        peer = {
+            id: peerId,
+            displayName: displayName || `Peer ${peerId.substring(0, 6)}`,
+            address: address || 'direct',
+            port: port || 0,
+            status: 'connected'
+        };
+        peerCache.set(peerId, peer);
+        sendDebugLog('Mesh', `Discovered manual connect peer: ${peer.displayName} (${peerId})`);
+    }
     if (peer) {
         const oldStatus = peer.status;
         peer.status = status;
@@ -379,6 +330,40 @@ electron_1.ipcMain.on('webrtc:received', (_event, { message }) => {
     const meshMsg = message;
     sendDebugLog('Router', `Received mesh packet ${meshMsg.id} over WebRTC DataChannel`);
     (0, router_1.handleIncomingMessage)(meshMsg, false);
+});
+// Status Check-in
+electron_1.ipcMain.on('status:update', (_event, { status, location }) => {
+    if (isSimulatedOffline)
+        return;
+    const checkinData = {
+        peer_id: ourPeerId,
+        display_name: ourUsername || 'Anonymous',
+        status,
+        location: location || null,
+        timestamp: Date.now()
+    };
+    // Save to local database
+    statusesRepo.savePeerStatus(checkinData);
+    sendDebugLog('Status', `Check-in saved: ${status}${location ? ' @ ' + location : ''}`);
+    // Broadcast as a mesh message to all peers
+    const meshMsg = {
+        id: crypto_1.default.randomUUID(),
+        senderId: ourPeerId,
+        recipientId: 'broadcast',
+        type: 'status',
+        payload: JSON.stringify(checkinData),
+        timestamp: Date.now(),
+        ttl: 5,
+        visitedNodes: [ourPeerId],
+        hops: 0,
+        priority: 0
+    };
+    (0, router_1.handleIncomingMessage)(meshMsg, true);
+    // Sync updated statuses back to renderer
+    const allStatuses = statusesRepo.getAllPeerStatuses();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('status:sync', allStatuses);
+    }
 });
 // WebRTC key handshake completion
 electron_1.ipcMain.on('webrtc:key-handshake', async (_event, { peerId, publicKeyJwk }) => {
@@ -451,20 +436,32 @@ electron_1.ipcMain.on('settings:set-turn-config', (_event, config) => {
         settingsRepo.setConfig('turn_credential', config.credential);
     sendDebugLog('Settings', 'TURN configuration updated');
 });
-// Offline Simulation
-electron_1.ipcMain.on('sim:toggle-offline', (_event, { offline }) => {
-    isSimulatedOffline = offline;
-    sendDebugLog('Sim', `offline mode set to: ${offline}`);
-    if (offline) {
-        (0, discovery_1.destroyDiscovery)();
+// Save connection data to file
+electron_1.ipcMain.handle('file:save-dialog', async (_event, { defaultName, content }) => {
+    if (!mainWindow)
+        return false;
+    const { filePath } = await electron_1.dialog.showSaveDialog(mainWindow, {
+        defaultPath: defaultName,
+        filters: [{ name: 'Signum Connection File', extensions: ['sig'] }]
+    });
+    if (filePath) {
+        fs_1.default.writeFileSync(filePath, content, 'utf8');
+        return true;
     }
-    else if (ourUsername) {
-        startMeshServices();
+    return false;
+});
+// Load connection data from file
+electron_1.ipcMain.handle('file:open-dialog', async () => {
+    if (!mainWindow)
+        return null;
+    const { filePaths } = await electron_1.dialog.showOpenDialog(mainWindow, {
+        filters: [{ name: 'Signum Connection File', extensions: ['sig'] }],
+        properties: ['openFile']
+    });
+    if (filePaths && filePaths.length > 0) {
+        return fs_1.default.readFileSync(filePaths[0], 'utf8');
     }
-    sendPeerListUpdate();
-    if (mainWindow) {
-        mainWindow.webContents.send('sim:status', { offline });
-    }
+    return null;
 });
 // Get peer fingerprint
 electron_1.ipcMain.handle('peer:get-fingerprint', async (_event, { peerId }) => {
@@ -474,6 +471,15 @@ electron_1.ipcMain.handle('peer:get-fingerprint', async (_event, { peerId }) => 
 // Export/Import identity
 electron_1.ipcMain.handle('identity:export', async (_event, { passphrase }) => {
     return (0, crypto_2.exportIdentity)(passphrase);
+});
+// Offline Simulation
+electron_1.ipcMain.on('sim:toggle-offline', (_event, { offline }) => {
+    isSimulatedOffline = offline;
+    sendDebugLog('Sim', `offline mode set to: ${offline}`);
+    sendPeerListUpdate();
+    if (mainWindow) {
+        mainWindow.webContents.send('sim:status', { offline });
+    }
 });
 electron_1.ipcMain.handle('identity:import', async (_event, { backupData, passphrase }) => {
     await (0, crypto_2.importIdentity)(backupData, passphrase);
@@ -492,9 +498,11 @@ electron_1.ipcMain.handle('history:get', () => {
         messages: messagesRepo.getAllMessages().map(m => ({
             id: m.id,
             senderId: m.sender_id,
+            senderName: m.sender_name,
             recipientId: m.recipient_id,
             type: m.type,
             payload: m.payload,
+            encrypted: m.encrypted === 1,
             timestamp: m.timestamp,
             ttl: m.ttl,
             visitedNodes: JSON.parse(m.visited_nodes),
@@ -508,8 +516,6 @@ electron_1.ipcMain.handle('history:get', () => {
 });
 // Cleanup on close
 electron_1.app.on('window-all-closed', () => {
-    (0, discovery_1.destroyDiscovery)();
-    (0, signaling_1.closeSignalingServer)();
     (0, db_1.stopAutoSave)();
     (0, db_1.closeDatabase)();
     if (process.platform !== 'darwin') {

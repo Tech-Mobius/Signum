@@ -363,12 +363,66 @@ select.input option {
   min-height: 0;
 }
 
+/* Check-in status items */
+.status-item {
+  border-bottom: 1px solid rgba(58, 66, 77, 0.4);
+  padding: 8px 0;
+  animation: slide-in-down 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.status-item:last-child {
+  border-bottom: none;
+}
+
+/* Animations */
+@keyframes slide-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow-green {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(74, 155, 110, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(74, 155, 110, 0.6);
+  }
+}
+
+@keyframes pulse-glow-blue {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(91, 141, 184, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(91, 141, 184, 0.6);
+  }
+}
+
 .message-bubble-wrapper {
   display: flex;
   flex-direction: column;
   max-width: 80%;
   margin-bottom: 2px;
+  animation: slide-in-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
 
 .message-bubble-wrapper.self {
   align-self: flex-end;
@@ -560,7 +614,8 @@ select.input option {
 
 .peer-card.selected {
   background-color: rgba(58, 66, 77, 0.5);
-  border-color: rgba(139, 149, 165, 0.4);
+  border-color: var(--color-relay-blue);
+  animation: pulse-glow-blue 3s infinite;
 }
 
 /* Broadcast card */
@@ -578,11 +633,17 @@ select.input option {
   border-color: rgba(229, 168, 59, 0.15);
 }
 
-.broadcast-card:hover,
+.broadcast-card:hover {
+  background-color: rgba(229, 168, 59, 0.1);
+  border-color: rgba(229, 168, 59, 0.25);
+}
+
 .broadcast-card.selected {
   background-color: rgba(229, 168, 59, 0.12);
-  border-color: rgba(229, 168, 59, 0.35);
+  border-color: var(--color-amber-sos);
+  box-shadow: 0 0 10px rgba(229, 168, 59, 0.2);
 }
+
 
 /* Faulty Terminal CSS (canvas fill) */
 .faulty-terminal-container {

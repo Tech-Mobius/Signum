@@ -9,10 +9,10 @@ export interface DBMessage {
   payload: string;
   timestamp: number;
   ttl: number;
-  visited_nodes: string; // JSON string of string[]
+  visited_nodes: string; 
   hops: number;
-  delivered: number; // 0 or 1
-  attachment_meta?: string; // JSON string
+  delivered: number; 
+  attachment_meta?: string; 
   priority: number;
 }
 
@@ -48,17 +48,14 @@ function saveStore() {
 export function initDatabase(userDataPath: string) {
   dbPath = path.join(userDataPath, 'signal-store.json');
   
-  // Ensure directory exists
   if (!fs.existsSync(userDataPath)) {
     fs.mkdirSync(userDataPath, { recursive: true });
   }
 
-  // Load existing store if it exists
   if (fs.existsSync(dbPath)) {
     try {
       const content = fs.readFileSync(dbPath, 'utf-8');
       storeData = JSON.parse(content);
-      // Ensure schema structures exist
       if (!storeData.config) storeData.config = {};
       if (!storeData.messages) storeData.messages = {};
       if (!storeData.peer_statuses) storeData.peer_statuses = {};
@@ -73,7 +70,6 @@ export function initDatabase(userDataPath: string) {
   console.log(`JSON File Database initialized at: ${dbPath}`);
 }
 
-// Config Key-Value
 export function setConfig(key: string, value: string) {
   storeData.config[key] = value;
   saveStore();
@@ -83,7 +79,6 @@ export function getConfig(key: string): string | null {
   return storeData.config[key] || null;
 }
 
-// Message Operations
 export function saveMessage(msg: DBMessage) {
   storeData.messages[msg.id] = msg;
   saveStore();
@@ -104,7 +99,6 @@ export function getUndeliveredMessages(): DBMessage[] {
   return Object.values(storeData.messages)
     .filter(m => m.delivered === 0)
     .sort((a, b) => {
-      // Sort by priority desc, then timestamp asc
       if (b.priority !== a.priority) {
         return b.priority - a.priority;
       }
@@ -116,7 +110,6 @@ export function getAllMessages(): DBMessage[] {
   return Object.values(storeData.messages).sort((a, b) => a.timestamp - b.timestamp);
 }
 
-// Peer Check-in Statuses
 export function savePeerStatus(status: PeerStatus) {
   storeData.peer_statuses[status.peer_id] = status;
   saveStore();

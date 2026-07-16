@@ -25,19 +25,16 @@ export default function SettingsPanel({
   const [turnUser, setTurnUser] = useState('');
   const [turnCred, setTurnCred] = useState('');
   
-  // Backup / Export
   const [exportPass, setExportPass] = useState('');
   const [exportString, setExportString] = useState('');
   const [copied, setCopied] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Restore / Import
   const [importString, setImportString] = useState('');
   const [importPass, setImportPass] = useState('');
   const [importError, setImportError] = useState('');
   const [importSuccess, setImportSuccess] = useState('');
 
-  // Load existing TURN config
   useEffect(() => {
     if (!window.api) return;
     window.api.getTurnConfig().then((config: any) => {
@@ -48,7 +45,6 @@ export default function SettingsPanel({
     });
   }, []);
 
-  // Generate QR Code when export string changes
   useEffect(() => {
     if (exportString && canvasRef.current) {
       QRCode.toCanvas(canvasRef.current, exportString, { width: 180, margin: 2 }, (err: any) => {
@@ -138,7 +134,7 @@ export default function SettingsPanel({
           </div>
         </form>
 
-        {/* 2. TURN Server Settings */}
+        {}
         <form onSubmit={handleSaveTurn} className="flex flex-col gap-2 border-t border-slate-light pt-3">
           <div className="flex items-center gap-1 text-[10px] text-fog font-semibold uppercase tracking-wider">
             <Globe className="w-3.5 h-3.5" />
@@ -191,7 +187,7 @@ export default function SettingsPanel({
           </button>
         </form>
 
-        {/* 3. Export Identity QR Backup */}
+        {}
         <div className="flex flex-col gap-2 border-t border-slate-light pt-3">
           <div className="flex items-center gap-1 text-[10px] text-fog font-semibold uppercase tracking-wider">
             <Key className="w-3.5 h-3.5" />
@@ -233,7 +229,7 @@ export default function SettingsPanel({
           )}
         </div>
 
-        {/* 4. Import Identity Backup */}
+        {}
         <form onSubmit={handleImportKeys} className="flex flex-col gap-2 border-t border-slate-light pt-3 pb-1">
           <div className="text-[10px] text-fog font-semibold uppercase tracking-wider">Restore / Import Identity</div>
           <textarea

@@ -4,16 +4,18 @@ export type { DBMessage };
 export function saveMessage(msg: DBMessage): void {
   run(
     `INSERT OR REPLACE INTO messages (
-      id, sender_id, recipient_id, type, payload, timestamp, ttl,
+      id, sender_id, sender_name, recipient_id, type, payload, encrypted, timestamp, ttl,
       visited_nodes, hops, delivered, attachment_meta, priority,
       acknowledged, ack_timestamp, retry_count, signature
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       msg.id,
       msg.sender_id,
+      msg.sender_name ?? null,
       msg.recipient_id,
       msg.type,
       msg.payload,
+      msg.encrypted ?? 0,
       msg.timestamp,
       msg.ttl,
       msg.visited_nodes,

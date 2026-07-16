@@ -8,6 +8,7 @@ let bonjourInstance = null;
 let publishedService = null;
 let browserInstance = null;
 let isDestroying = false;
+let updateTimer = null;
 function initDiscovery(peerId, displayName, signalingPort, onPeerUp, onPeerDown) {
     // If already initializing, wait
     if (isDestroying) {
@@ -51,7 +52,7 @@ function initDiscovery(peerId, displayName, signalingPort, onPeerUp, onPeerDown)
             const discoveredPeerId = txt.id;
             const discoveredName = txt.name || 'Anonymous Peer';
             // Get local IPv4 address
-            const address = service.addresses?.[0] || service.referer?.address || '127.0.0.1';
+            const address = service.addresses?.find((addr) => !addr.includes(':')) || service.referer?.address || '127.0.0.1';
             const port = service.port;
             if (discoveredPeerId) {
                 console.log(`mDNS Peer Found: ${discoveredName} (${discoveredPeerId}) at ${address}:${port}`);
@@ -63,6 +64,21 @@ function initDiscovery(peerId, displayName, signalingPort, onPeerUp, onPeerDown)
                 });
             }
         });
+        // Periodically force update/query to handle Wi-Fi multicast packet loss
+        if (updateTimer) {
+            clearInterval(updateTimer);
+        }
+        updateTimer = setInterval(() => {
+            if (browserInstance && !isDestroying) {
+                console.log('[Discovery] Sending periodic mDNS query...');
+                try {
+                    browserInstance.update();
+                }
+                catch (e) {
+                    console.error('[Discovery] Failed to update browser instance:', e);
+                }
+            }
+        }, 5000);
         browserInstance.on('down', (service) => {
             const txt = service.txt || {};
             const discoveredPeerId = txt.id;
@@ -123,6 +139,11 @@ function destroyDiscovery() {
             console.error('Error stopping service:', e);
         }
         publishedService = null;
+    }
+    // Clear update timer
+    if (updateTimer) {
+        clearInterval(updateTimer);
+        updateTimer = null;
     }
     // Destroy bonjour instance
     if (bonjourInstance) {

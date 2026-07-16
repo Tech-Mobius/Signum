@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Shield, 
   Wifi, 
@@ -30,36 +30,82 @@ import { useMessages } from './hooks/useMessages';
 import { useWebRTC } from './hooks/useWebRTC';
 import { MeshMessage } from '../shared/ipc-types';
 
-// Synthesize S-O-S in Morse Code using Web Audio API
-function playSosBeeps() {
+const MORSE_CODE_MAP: Record<string, string> = {
+  'A': '.-',    'B': '-...',  'C': '-.-.',  'D': '-..',   'E': '.',
+  'F': '..-.',  'G': '--.',   'H': '....',  'I': '..',    'J': '.---',
+  'K': '-.-',   'L': '.-..',  'M': '--',    'N': '-.',    'O': '---',
+  'P': '.--.',  'Q': '--.-',  'R': '.-.',   'S': '...',   'T': '-',
+  'U': '..-',   'V': '...-',  'W': '.--',   'X': '-..-',  'Y': '-.--',
+  'Z': '--..',  '0': '-----', '1': '.----', '2': '..---', '3': '...--',
+  '4': '....-', '5': '.....', '6': '-....', '7': '--...', '8': '---..',
+  '9': '----.', '.': '.-.-.-', ',': '--..--', '?': '..--..', '!': '-.-.--',
+  '/': '-..-.', '(': '-.--.', ')': '-.--.-', '&': '.-...', ':': '---...',
+  ';': '-.-.-.', '=': '-...-', '+': '.-.-.', '-': '-....-', '_': '..--.-',
+  '"': '.-..-.', '$': '...-..-', '@': '.--.-.', ' ': '/',
+};
+
+function textToMorse(text: string): string {
+  return text
+    .toUpperCase()
+    .split('')
+    .map(ch => MORSE_CODE_MAP[ch] || '')
+    .filter(Boolean)
+    .join(' ');
+}
+
+function playMorseCode(text: string) {
   try {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextClass) return;
     const context = new AudioContextClass();
     
-    const playBeep = (freq: number, duration: number, delay: number) => {
+    const freq = 700; // Hz — standard Morse tone
+    const dotDur = 0.08; // seconds
+    const dashDur = dotDur * 3;
+    const elementGap = dotDur; // gap between dots/dashes within a character
+    const charGap = dotDur * 3; // gap between characters
+    const wordGap = dotDur * 7; // gap between words
+
+    const morseStr = text.toUpperCase();
+    let t = 0;
+
+    const playTone = (duration: number, startTime: number) => {
       const osc = context.createOscillator();
       const gainNode = context.createGain();
       osc.connect(gainNode);
       gainNode.connect(context.destination);
-      osc.frequency.setValueAtTime(freq, context.currentTime + delay);
-      gainNode.gain.setValueAtTime(0.3, context.currentTime + delay);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, context.currentTime + delay + duration);
-      osc.start(context.currentTime + delay);
-      osc.stop(context.currentTime + delay + duration);
+      osc.frequency.setValueAtTime(freq, context.currentTime + startTime);
+      gainNode.gain.setValueAtTime(0.25, context.currentTime + startTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, context.currentTime + startTime + duration);
+      osc.start(context.currentTime + startTime);
+      osc.stop(context.currentTime + startTime + duration);
     };
 
-    const shortDur = 0.12;
-    const longDur  = 0.35;
-    const gap      = 0.15;
-    let t = 0;
-    for (let i = 0; i < 3; i++) { playBeep(880, shortDur, t); t += shortDur + gap; }
-    t += gap;
-    for (let i = 0; i < 3; i++) { playBeep(880, longDur,  t); t += longDur  + gap; }
-    t += gap;
-    for (let i = 0; i < 3; i++) { playBeep(880, shortDur, t); t += shortDur + gap; }
+    const limitedText = morseStr.slice(0, 80);
+
+    for (const ch of limitedText) {
+      const morse = MORSE_CODE_MAP[ch];
+      if (!morse) continue;
+
+      if (ch === ' ') {
+        t += wordGap;
+        continue;
+      }
+
+      for (let i = 0; i < morse.length; i++) {
+        const symbol = morse[i];
+        if (symbol === '.') {
+          playTone(dotDur, t);
+          t += dotDur + elementGap;
+        } else if (symbol === '-') {
+          playTone(dashDur, t);
+          t += dashDur + elementGap;
+        }
+      }
+      t += charGap - elementGap; // char gap minus the element gap already added
+    }
   } catch (e) {
-    console.error('AudioContext synth error:', e);
+    console.error('Morse Audio error:', e);
   }
 }
 
@@ -70,15 +116,13 @@ export default function App() {
   const [verificationPeer, setVerificationPeer] = useState<any | null>(null);
   const [peerTrustStates, setPeerTrustStates] = useState<Record<string, { fingerprint: string; trusted: boolean }>>({});
 
-  // 1. Logs & Console states
-  const addLog = (category: string, message: string) => {
+  const addLog = useCallback((category: string, message: string) => {
     setMessagesHook.setDebugLogs(prev => [
       { timestamp: Date.now(), level: 'info', category, message },
       ...prev
     ].slice(0, 200));
-  };
+  }, []);
 
-  // 2. Load Identity & Key Hooks
   const identityHook = useIdentity();
   const peersHook = usePeers();
   const cryptoHook = useCrypto(addLog);
@@ -87,19 +131,18 @@ export default function App() {
     identityHook.identity?.peerId || '',
     identityHook.identity?.username || '',
     addLog,
-    playSosBeeps,
+    playMorseCode,
     setSosActive,
-    cryptoHook.decryptPayload
+    cryptoHook.decryptPayload,
+    (peerId) => setSelectedPeerId(peerId)
   );
 
-  // 3. WebRTC Manager Hook
   const webrtcHook = useWebRTC({
     peerId: identityHook.identity?.peerId || '',
     displayName: identityHook.identity?.username || '',
     addLog,
     onHandshakeReceived: async (targetId, publicKeyJwk) => {
       await cryptoHook.processHandshake(targetId, publicKeyJwk);
-      // Auto-fetch and trust check peer fingerprint
       if (window.api) {
         const finger = await window.api.getPeerFingerprint(targetId);
         if (finger) {
@@ -111,62 +154,39 @@ export default function App() {
       }
     },
     onMeshMessageReceived: async (encryptedMsg) => {
-      if (window.api) window.api.webrtcReceived({ message: encryptedMsg });
+      if (window.api) window.api.webrtcReceived(encryptedMsg);
     },
     onFileReceived: (fileMsg) => {
-      if (window.api) window.api.webrtcReceived({ message: fileMsg });
+      if (window.api) window.api.webrtcReceived(fileMsg);
+    },
+    onPeerRemapped: (tempId, realId) => {
+      setSelectedPeerId(prev => prev === tempId ? realId : prev);
+      setPeerTrustStates(prev => {
+        if (prev[tempId]) {
+          const next = { ...prev };
+          next[realId] = next[tempId];
+          delete next[tempId];
+          return next;
+        }
+        return prev;
+      });
     }
   });
-
-  // 4. WebRTC Connection State Machine loop
-  useEffect(() => {
-    if (!identityHook.identity || peersHook.isOffline) return;
-
-    peersHook.peers.forEach(async (peer) => {
-      if (peer.status === 'searching') {
-        if (identityHook.identity && identityHook.identity.peerId < peer.id) {
-          addLog('WebRTC', `Initiating connection to ${peer.displayName}`);
-          webrtcHook.initiateWebRTCConnection(peer, cryptoHook.getHandshakeData);
-        }
-      } else if (peer.status === 'offline') {
-        webrtcHook.cleanupPeerConnection(peer.id);
-      }
-    });
-  }, [peersHook.peers, identityHook.identity, peersHook.isOffline]);
-
-  // 5. Handle incoming signaling messages forwarded from Main process
   useEffect(() => {
     if (!window.api) return;
 
-    const unsubMsg = window.api.onMessageReceived(async (msg) => {
-      if (msg.type === 'signal') {
-        const payload = JSON.parse(msg.payload);
-        webrtcHook.handleIncomingSignal(payload, cryptoHook.getHandshakeData);
-      } else if (msg.type === 'signal-manual-initiate') {
-        const payload = JSON.parse(msg.payload);
-        webrtcHook.initiateWebRTCConnection({
-          id: payload.tempId,
-          displayName: `Peer @ ${payload.address}`,
-          address: payload.address,
-          port: payload.port
-        }, cryptoHook.getHandshakeData);
-      }
-    });
-
-    const unsubSend = window.api.onWebrtcSend(({ peerId, message }) => {
+    const unsubSend = window.api.onWebrtcSend(({ peerId, message }: { peerId: string; message: any }) => {
       webrtcHook.webrtcSendPacket(peerId, message, cryptoHook.encryptPayload);
     });
 
     return () => {
-      unsubMsg();
       unsubSend();
     };
-  }, [identityHook.identity, webrtcHook, cryptoHook]);
+  }, []); // Empty deps — the refs inside hooks are stable
 
-  const handleSendMessage = (text: string, type: 'text' | 'sos' = 'text') => {
+  const handleSendMessage = useCallback((text: string, type: 'text' | 'sos' = 'text') => {
     if (!identityHook.identity) return;
     
-    // Check E2E verification warn if destination is not trusted direct peer
     if (selectedPeerId !== 'broadcast') {
       const trust = peerTrustStates[selectedPeerId];
       if (trust && !trust.trusted) {
@@ -174,18 +194,21 @@ export default function App() {
       }
     }
 
+    const messageId = crypto.randomUUID();
+    const timestamp = Date.now();
+
     if (window.api) {
-      window.api.sendMessage(selectedPeerId, type, text);
+      window.api.sendMessage(selectedPeerId, type, text, undefined, messageId, timestamp);
     }
     
     const localMsg: MeshMessage = {
-      id: crypto.randomUUID(),
+      id: messageId,
       senderId: identityHook.identity.peerId,
       senderName: identityHook.identity.username,
       recipientId: selectedPeerId,
       type,
       payload: text,
-      timestamp: Date.now(),
+      timestamp,
       hops: 0,
       ttl: 5,
       visitedNodes: [identityHook.identity.peerId],
@@ -196,17 +219,17 @@ export default function App() {
     if (type === 'sos') {
       setSosActive(true);
       setTimeout(() => setSosActive(false), 6000);
-      playSosBeeps();
+      playMorseCode(text);
     }
-  };
+  }, [identityHook.identity, selectedPeerId, peerTrustStates, addLog]);
 
-  const handleSendFile = (file: File) => {
+  const handleSendFile = useCallback((file: File) => {
     if (selectedPeerId === 'broadcast') return;
     webrtcHook.webrtcSendFile(selectedPeerId, file, (fileMsg) => {
       setMessagesHook.addLocalMessage(fileMsg);
-      if (window.api) window.api.webrtcReceived({ message: fileMsg });
+      if (window.api) window.api.webrtcReceived(fileMsg);
     });
-  };
+  }, [selectedPeerId, webrtcHook]);
 
   const showVerificationModal = async (targetId: string) => {
     const peer = peersHook.peers.find(p => p.id === targetId);
@@ -238,10 +261,10 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen" style={{ position: 'relative' }}>
       
-      {/* SOS ring overlay */}
+      {}
       {sosActive && <div className="sos-ring-overlay" />}
 
-      {/* Faulty Terminal WebGL background */}
+      {}
       <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
         <FaultyTerminal
           scale={1.2}
@@ -261,13 +284,13 @@ export default function App() {
           pageLoadAnimation={true}
           brightness={0.85}
         />
-        {/* Layered AsciiArt (ASCII flower) on top of the WebGL grid */}
+        {}
         <div style={{ position: 'absolute', inset: 0, zIndex: 1, opacity: 1, mixBlendMode: 'normal', pointerEvents: 'none' }}>
           <AsciiArt className="h-full w-full" />
         </div>
       </div>
 
-      {/* Title Bar */}
+      {}
       <div className="title-bar">
         <div className="title-bar-identity">
           <Shield className="w-4 h-4 text-amber-sos" />
@@ -303,10 +326,10 @@ export default function App() {
               {peersHook.isOffline ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
             </button>
 
-            {/* Separator */}
+            {}
             <div className="w-px h-4 bg-slate-light mx-1" />
 
-            {/* Window controls */}
+            {}
             <button onClick={() => window.api?.minimizeWindow()} className="win-btn" title="Minimize">
               <Minus className="w-3.5 h-3.5" />
             </button>
@@ -320,10 +343,10 @@ export default function App() {
         </div>
       </div>
 
-      {/* Main 3-column layout */}
+      {}
       <div className="app-container">
 
-        {/* LEFT: Peer List & Status Board */}
+        {}
         <div className="panel">
           <div className="panel-header">
             <span>MESH PARTICIPANTS</span>
@@ -336,6 +359,10 @@ export default function App() {
               setSelectedPeerId={setSelectedPeerId}
               onVerifyFingerprint={showVerificationModal}
               peerTrustStates={peerTrustStates}
+              createManualOffer={webrtcHook.createManualOffer}
+              acceptManualOffer={webrtcHook.acceptManualOffer}
+              completeManualConnection={webrtcHook.completeManualConnection}
+              getHandshakeData={cryptoHook.getHandshakeData}
             />
             <div className="border-t border-slate-light pt-3 mt-1">
               <h4 className="text-[10px] font-semibold text-fog mb-2 uppercase tracking-wider">
@@ -346,7 +373,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* CENTER: Chat */}
+        {}
         <div className="panel">
           <div className="panel-header">
             <span>
@@ -386,7 +413,7 @@ export default function App() {
             <div className="panel-header py-1 text-[10px]">
               <span>DEBUG / ROUTING LOG</span>
             </div>
-            <div className="flex-1 overflow-y-auto p-3 bg-slate-base/30 min-h-0">
+            <div className="flex-1 p-3 bg-slate-base/30 min-h-0 overflow-hidden">
               <DebugPanel logs={setMessagesHook.debugLogs} />
             </div>
           </div>
@@ -398,23 +425,23 @@ export default function App() {
       <div className="status-bar">
         <span className="flex items-center gap-1.5">
           <span className={`w-1.5 h-1.5 rounded-full ${peersHook.isOffline ? 'bg-caution-red' : 'bg-steady-green'} animate-pulse`} />
-          {peersHook.isOffline ? 'MESH DISCONNECTED' : 'ACTIVE MESH DISCOVERY'}
+          {peersHook.isOffline ? 'OFFLINE MODE' : 'FILE CONNECTION ACTIVE'}
         </span>
         {identityHook.identity && (
           <span className="font-mono text-[10px]">
-            {identityHook.identity.address}:{identityHook.identity.port} · PEERS: {peersHook.peers.filter(p => p.status === 'connected').length}
+            PEER ID: {identityHook.identity.peerId} · CONNECTED PEERS: {peersHook.peers.filter(p => p.status === 'connected').length}
           </span>
         )}
       </div>
 
-      {/* Username Prompt Overlay */}
+      {}
       {showPrompt && (
         <UsernamePrompt
           onSave={(name) => identityHook.setUsername(name)}
         />
       )}
 
-      {/* Verification Modal */}
+      {}
       {verificationPeer && (
         <VerificationModal
           peerId={verificationPeer.id}
@@ -426,7 +453,7 @@ export default function App() {
         />
       )}
 
-      {/* Settings Modal */}
+      {}
       {showSettings && (
         <SettingsPanel
           currentUsername={identityHook.identity?.username || ''}

@@ -1,6 +1,30 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Paperclip, ShieldAlert, FileText, Image, X, AlertTriangle } from 'lucide-react';
 
+const MORSE_CODE_MAP: Record<string, string> = {
+  'A': '.-',    'B': '-...',  'C': '-.-.',  'D': '-..',   'E': '.',
+  'F': '..-.',  'G': '--.',   'H': '....',  'I': '..',    'J': '.---',
+  'K': '-.-',   'L': '.-..',  'M': '--',    'N': '-.',    'O': '---',
+  'P': '.--.',  'Q': '--.-',  'R': '.-.',   'S': '...',   'T': '-',
+  'U': '..-',   'V': '...-',  'W': '.--',   'X': '-..-',  'Y': '-.--',
+  'Z': '--..',  '0': '-----', '1': '.----', '2': '..---', '3': '...--',
+  '4': '....-', '5': '.....', '6': '-....', '7': '--...', '8': '---..',
+  '9': '----.', '.': '.-.-.-', ',': '--..--', '?': '..--..', '!': '-.-.--',
+  '/': '-..-.', '(': '-.--.', ')': '-.--.-', '&': '.-...', ':': '---...',
+  ';': '-.-.-.', '=': '-...-', '+': '.-.-.', '-': '-....-', '_': '..--.-',
+  '"': '.-..-.', '$': '...-..-', '@': '.--.-.', ' ': '/',
+};
+
+function textToMorse(text: string): string {
+  return text
+    .toUpperCase()
+    .split('')
+    .map(ch => MORSE_CODE_MAP[ch] || '')
+    .filter(Boolean)
+    .join(' ');
+}
+
+
 interface ChatPanelProps {
   messages: any[];
   recipientId: string | 'broadcast';
@@ -23,7 +47,6 @@ export default function ChatPanel({
   const messageListRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Scroll to bottom when new messages arrive
   useEffect(() => {
     const el = messageListRef.current;
     if (el) {
@@ -50,12 +73,10 @@ export default function ChatPanel({
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
-      // Show inline error in log instead of alert
       console.warn('File size exceeds 5MB limit.');
       return;
     }
     onSendFile(file);
-    // Reset input so same file can be re-selected
     e.target.value = '';
   };
 
@@ -70,7 +91,7 @@ export default function ChatPanel({
   return (
     <>
       <div className="chat-container">
-        {/* Message List */}
+        {}
         <div
           ref={messageListRef}
           className="message-list"
@@ -95,22 +116,28 @@ export default function ChatPanel({
                   key={msg.id}
                   className={`message-bubble-wrapper ${isSelf ? 'self' : 'peer'} ${isSos ? 'sos' : ''}`}
                 >
-                  {/* Sender name */}
+                  {}
                   {!isSelf && (
                     <span className="text-[10px] text-fog font-semibold mb-0.5 px-1 font-mono">
                       {msg.senderName || `Node:${msg.senderId?.substring(0, 6)}`}
                     </span>
                   )}
 
-                  {/* Bubble */}
+                  {}
                   <div className="message-bubble">
                     {isSos && (
-                      <div className="flex items-center gap-1.5 mb-1 text-amber-sos text-[11px] font-bold uppercase tracking-wider">
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        SOS ALERT
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 mb-1 text-amber-sos text-[11px] font-bold uppercase tracking-wider">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          SOS ALERT
+                        </div>
+                        <div className="text-xs">{msg.payload}</div>
+                        <div className="text-[10px] text-amber-sos/80 font-mono tracking-widest bg-amber-sos/5 border border-amber-sos/15 rounded p-1.5 mt-1 select-text">
+                          {textToMorse(msg.payload)}
+                        </div>
                       </div>
                     )}
-                    {isFile && msg.attachmentMeta ? (
+                    {!isSos && isFile && msg.attachmentMeta ? (
                       <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-2 p-2 bg-slate-base/50 rounded border border-slate-light/50">
                           {msg.attachmentMeta.fileType?.startsWith('image/')
@@ -146,7 +173,7 @@ export default function ChatPanel({
                     )}
                   </div>
 
-                  {/* Metadata */}
+                  {}
                   <div className={`message-meta ${isSelf ? 'justify-end' : ''}`}>
                     <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     <span>·</span>
@@ -166,7 +193,7 @@ export default function ChatPanel({
           )}
         </div>
 
-        {/* Input Footer */}
+        {}
         <div className="flex-shrink-0 p-2.5 bg-slate-base/50 border-t border-slate-light">
           <form onSubmit={handleSend} className="flex gap-2 items-center">
             <input
@@ -216,14 +243,14 @@ export default function ChatPanel({
         </div>
       </div>
 
-      {/* SOS Modal — inline, no browser prompt() */}
+      {}
       {showSosModal && (
         <div className="modal-overlay" onClick={() => setShowSosModal(false)}>
           <div
             className="modal-content sos-modal"
             onClick={e => e.stopPropagation()}
           >
-            {/* Header */}
+            {}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-amber-sos/15 border border-amber-sos/30 flex items-center justify-center">

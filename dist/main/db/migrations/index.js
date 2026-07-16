@@ -109,6 +109,22 @@ const MIGRATIONS = [
             // Already included in v1, but keeping for reference
         },
     },
+    {
+        version: 3,
+        name: 'add_sender_name_encrypted',
+        up: (db) => {
+            // Add sender_name column — safe to ignore if already exists
+            try {
+                db.exec(`ALTER TABLE messages ADD COLUMN sender_name TEXT;`);
+            }
+            catch (_) { }
+            // Add encrypted column — safe to ignore if already exists
+            try {
+                db.exec(`ALTER TABLE messages ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0;`);
+            }
+            catch (_) { }
+        },
+    },
 ];
 let currentVersion = 0;
 function getCurrentVersion(db) {

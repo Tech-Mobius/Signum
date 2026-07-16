@@ -3,7 +3,6 @@ import { Database } from 'sql.js';
 export const migration_001_initial = {
   name: '001_initial',
   up: async (db: Database): Promise<void> => {
-    // Messages table
     db.exec(`
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
@@ -25,7 +24,6 @@ export const migration_001_initial = {
       );
     `);
 
-    // Indexes for common queries
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_messages_recipient_delivered
       ON messages (recipient_id, delivered);
@@ -39,7 +37,6 @@ export const migration_001_initial = {
       ON messages (timestamp DESC);
     `);
 
-    // Peer statuses table
     db.exec(`
       CREATE TABLE IF NOT EXISTS peer_statuses (
         peer_id TEXT PRIMARY KEY,
@@ -55,7 +52,6 @@ export const migration_001_initial = {
       ON peer_statuses (timestamp DESC);
     `);
 
-    // Crypto keys table
     db.exec(`
       CREATE TABLE IF NOT EXISTS crypto_keys (
         id TEXT PRIMARY KEY,
@@ -73,7 +69,6 @@ export const migration_001_initial = {
       ON crypto_keys (peer_id);
     `);
 
-    // Settings table
     db.exec(`
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -82,7 +77,6 @@ export const migration_001_initial = {
       );
     `);
 
-    // Verified peers table (for TOFU fingerprint verification)
     db.exec(`
       CREATE TABLE IF NOT EXISTS verified_peers (
         peer_id TEXT PRIMARY KEY,
@@ -93,7 +87,6 @@ export const migration_001_initial = {
       );
     `);
 
-    // Peers table (for known peer metadata)
     db.exec(`
       CREATE TABLE IF NOT EXISTS peers (
         id TEXT PRIMARY KEY,

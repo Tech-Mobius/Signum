@@ -5,7 +5,6 @@ const MIGRATIONS = [
     version: 1,
     name: 'initial_schema',
     up: (db: Database) => {
-      // Messages table
       db.exec(`
         CREATE TABLE IF NOT EXISTS messages (
           id TEXT PRIMARY KEY,
@@ -31,7 +30,6 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id);
       `);
 
-      // Peers table
       db.exec(`
         CREATE TABLE IF NOT EXISTS peers (
           id TEXT PRIMARY KEY,
@@ -45,7 +43,6 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_peers_last_seen ON peers(last_seen);
       `);
 
-      // Peer statuses (check-ins)
       db.exec(`
         CREATE TABLE IF NOT EXISTS peer_statuses (
           peer_id TEXT PRIMARY KEY,
@@ -56,7 +53,6 @@ const MIGRATIONS = [
         );
       `);
 
-      // Crypto keys
       db.exec(`
         CREATE TABLE IF NOT EXISTS crypto_keys (
           id TEXT PRIMARY KEY,
@@ -71,7 +67,6 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_crypto_keys_peer ON crypto_keys(peer_id);
       `);
 
-      // Verified peers (fingerprint verification)
       db.exec(`
         CREATE TABLE IF NOT EXISTS verified_peers (
           peer_id TEXT PRIMARY KEY,
@@ -82,7 +77,6 @@ const MIGRATIONS = [
         );
       `);
 
-      // Settings
       db.exec(`
         CREATE TABLE IF NOT EXISTS settings (
           key TEXT PRIMARY KEY,
@@ -91,7 +85,6 @@ const MIGRATIONS = [
         );
       `);
 
-      // Pending outbound messages (retry queue)
       db.exec(`
         CREATE TABLE IF NOT EXISTS outbound_queue (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,7 +103,14 @@ const MIGRATIONS = [
     version: 2,
     name: 'add_message_acknowledgment',
     up: (db: Database) => {
-      // Already included in v1, but keeping for reference
+    },
+  },
+  {
+    version: 3,
+    name: 'add_sender_name_encrypted',
+    up: (db: Database) => {
+      try { db.exec(`ALTER TABLE messages ADD COLUMN sender_name TEXT;`); } catch (_) {}
+      try { db.exec(`ALTER TABLE messages ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0;`); } catch (_) {}
     },
   },
 ];

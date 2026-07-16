@@ -15,12 +15,10 @@ export function usePeers() {
   useEffect(() => {
     if (!window.api) return;
 
-    // Load initial offline state
     const unsubSim = window.api.onSimStatusUpdated((status) => {
       setIsOffline(status.offline);
     });
 
-    // Handle peer list updates from discovery
     const unsubPeers = window.api.onPeerListUpdated((list) => {
       setPeers(list);
     });
@@ -30,11 +28,6 @@ export function usePeers() {
       unsubPeers();
     };
   }, []);
-
-  const manualConnect = (address: string, port: number) => {
-    if (!window.api) return;
-    window.api.manualConnect(address, port);
-  };
 
   const toggleOffline = (offline: boolean) => {
     if (!window.api) return;
@@ -60,7 +53,6 @@ export function usePeers() {
   return {
     peers,
     isOffline,
-    manualConnect,
     toggleOffline,
     verifyFingerprint,
     trustFingerprint,

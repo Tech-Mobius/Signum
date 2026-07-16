@@ -11,23 +11,18 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<any, any> | null>(null);
 
-  // Triggered when messages update to check for new hops to animate
   useEffect(() => {
     if (messages.length === 0 || !ourId) return;
     
-    // Find the latest message and animate it if it was received recently (within last 3 seconds)
     const latestMsg = messages[messages.length - 1];
     if (Date.now() - latestMsg.timestamp > 3000) return;
 
-    // Determine hop sender and receiver coordinates
-    // We animate from the sender node to the receiver node (or broadcast to all connected)
     const fromId = latestMsg.senderId;
     const toId = latestMsg.recipientId === 'broadcast' ? null : latestMsg.recipientId;
 
     if (toId) {
       animateParticle(fromId, toId, latestMsg.type);
     } else {
-      // For broadcast, animate to all connected peers
       peers.filter(p => p.status === 'connected').forEach(peer => {
         animateParticle(fromId, peer.id, latestMsg.type);
       });
@@ -41,7 +36,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
 
     if (fromNode.empty() || toNode.empty()) return;
 
-    // Get positions
     const fromX = parseFloat(fromNode.attr('cx'));
     const fromY = parseFloat(fromNode.attr('cy'));
     const toX = parseFloat(toNode.attr('cx'));
@@ -49,7 +43,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
 
     if (isNaN(fromX) || isNaN(fromY) || isNaN(toX) || isNaN(toY)) return;
 
-    // Create flying particle
     const color = type === 'sos' ? '#E5A83B' : '#5B8DB8';
     const radius = type === 'sos' ? 6 : 4;
 
@@ -61,7 +54,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
       .attr('opacity', 0.9)
       .style('pointer-events', 'none');
 
-    // Animate along the straight line
     particle.transition()
       .duration(1000)
       .ease(d3.easeQuadOut)
@@ -70,7 +62,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
       .on('end', () => {
         particle.remove();
         
-        // Target Node Impact Ripple
         const ripple = svg.append('circle')
           .attr('cx', toX)
           .attr('cy', toY)
@@ -96,11 +87,8 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
     const width = svgRef.current.clientWidth || 340;
     const height = svgRef.current.clientHeight || 450;
     
-    // Clear svg elements
     svg.selectAll('*').remove();
 
-    // Prepare graph data
-    // 1. Nodes: Add ourselves and online/relaying peers
     const nodes = [
       { id: ourId, label: 'YOU (Self)', isSelf: true, status: 'connected' },
       ...peers.map(p => ({
@@ -111,7 +99,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
       }))
     ];
 
-    // 2. Links: Add edges
     const links: any[] = [];
     peers.forEach(peer => {
       if (peer.status === 'connected') {
@@ -121,7 +108,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
       }
     });
 
-    // Create D3 groups
     const gLinks = svg.append('g').attr('class', 'links');
     const gNodes = svg.append('g').attr('class', 'nodes');
     const gLabels = svg.append('g').attr('class', 'labels');
@@ -134,7 +120,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
 
     simulationRef.current = simulation;
 
-    // Draw Links
     const link = gLinks.selectAll('line')
       .data(links)
       .enter()
@@ -144,7 +129,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
       .attr('stroke-width', 2)
       .attr('stroke-dasharray', (d) => d.type === 'relay' ? '4 4' : 'none');
 
-    // Draw Nodes
     const node = gNodes.selectAll('circle')
       .data(nodes)
       .enter()
@@ -156,7 +140,7 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
         if (d.isSelf) return '#E5A83B';
         if (d.status === 'connected') return '#4A9B6E';
         if (d.status === 'relaying') return '#5B8DB8';
-        return '#8B95A5'; // offline or searching
+        return '#8B95A5'; 
       })
       .attr('stroke', '#1E2328')
       .attr('stroke-width', 2)
@@ -167,7 +151,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
           .on('end', dragended)
       );
 
-    // Draw Labels
     const label = gLabels.selectAll('text')
       .data(nodes)
       .enter()
@@ -179,7 +162,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
       .attr('dy', (d) => d.isSelf ? -22 : -18)
       .text((d) => d.label);
 
-    // Tick listener
     simulation.on('tick', () => {
       link
         .attr('x1', (d: any) => d.source.x)
@@ -196,7 +178,6 @@ export default function MeshGraph({ peers, ourId, messages }: MeshGraphProps) {
         .attr('y', (d: any) => d.y);
     });
 
-    // Drag Helpers
     function dragstarted(event: any, d: any) {
       if (!event.active) simulation.alphaTarget(0.3).restart();
       d.fx = d.x;

@@ -11,15 +11,14 @@
     "start": "electron ."
   },
   "dependencies": {
-    "bonjour-service": "^1.2.1",
     "d3": "^7.8.5",
+    "jsqr": "^1.4.0",
     "lucide-react": "^0.321.0",
     "ogl": "^1.0.11",
     "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "sql.js": "^1.14.1",
-    "ws": "^8.16.0"
+    "sql.js": "^1.14.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -29,7 +28,6 @@
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "@types/sql.js": "^1.4.11",
-    "@types/ws": "^8.5.10",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.5.3",
     "electron": "^28.2.0",
