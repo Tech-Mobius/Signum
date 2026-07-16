@@ -14,6 +14,10 @@
   "build": {
     "appId": "com.techmobius.signum",
     "productName": "Signum",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
     "directories": {
       "output": "dist-installer"
     },
@@ -23,7 +27,6 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
     }
   },
