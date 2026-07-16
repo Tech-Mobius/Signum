@@ -4,7 +4,6 @@ exports.migration_001_initial = void 0;
 exports.migration_001_initial = {
     name: '001_initial',
     up: async (db) => {
-        // Messages table
         db.exec(`
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
@@ -25,7 +24,6 @@ exports.migration_001_initial = {
         signature TEXT
       );
     `);
-        // Indexes for common queries
         db.exec(`
       CREATE INDEX IF NOT EXISTS idx_messages_recipient_delivered
       ON messages (recipient_id, delivered);
@@ -38,7 +36,6 @@ exports.migration_001_initial = {
       CREATE INDEX IF NOT EXISTS idx_messages_timestamp
       ON messages (timestamp DESC);
     `);
-        // Peer statuses table
         db.exec(`
       CREATE TABLE IF NOT EXISTS peer_statuses (
         peer_id TEXT PRIMARY KEY,
@@ -52,7 +49,6 @@ exports.migration_001_initial = {
       CREATE INDEX IF NOT EXISTS idx_peer_statuses_timestamp
       ON peer_statuses (timestamp DESC);
     `);
-        // Crypto keys table
         db.exec(`
       CREATE TABLE IF NOT EXISTS crypto_keys (
         id TEXT PRIMARY KEY,
@@ -68,7 +64,6 @@ exports.migration_001_initial = {
       CREATE INDEX IF NOT EXISTS idx_crypto_keys_peer_id
       ON crypto_keys (peer_id);
     `);
-        // Settings table
         db.exec(`
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -76,7 +71,6 @@ exports.migration_001_initial = {
         updated_at INTEGER NOT NULL
       );
     `);
-        // Verified peers table (for TOFU fingerprint verification)
         db.exec(`
       CREATE TABLE IF NOT EXISTS verified_peers (
         peer_id TEXT PRIMARY KEY,
@@ -86,7 +80,6 @@ exports.migration_001_initial = {
         display_name TEXT
       );
     `);
-        // Peers table (for known peer metadata)
         db.exec(`
       CREATE TABLE IF NOT EXISTS peers (
         id TEXT PRIMARY KEY,

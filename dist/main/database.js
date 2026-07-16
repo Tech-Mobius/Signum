@@ -31,16 +31,13 @@ function saveStore() {
 }
 function initDatabase(userDataPath) {
     dbPath = path_1.default.join(userDataPath, 'signal-store.json');
-    // Ensure directory exists
     if (!fs_1.default.existsSync(userDataPath)) {
         fs_1.default.mkdirSync(userDataPath, { recursive: true });
     }
-    // Load existing store if it exists
     if (fs_1.default.existsSync(dbPath)) {
         try {
             const content = fs_1.default.readFileSync(dbPath, 'utf-8');
             storeData = JSON.parse(content);
-            // Ensure schema structures exist
             if (!storeData.config)
                 storeData.config = {};
             if (!storeData.messages)
@@ -58,7 +55,6 @@ function initDatabase(userDataPath) {
     }
     console.log(`JSON File Database initialized at: ${dbPath}`);
 }
-// Config Key-Value
 function setConfig(key, value) {
     storeData.config[key] = value;
     saveStore();
@@ -66,7 +62,6 @@ function setConfig(key, value) {
 function getConfig(key) {
     return storeData.config[key] || null;
 }
-// Message Operations
 function saveMessage(msg) {
     storeData.messages[msg.id] = msg;
     saveStore();
@@ -84,7 +79,6 @@ function getUndeliveredMessages() {
     return Object.values(storeData.messages)
         .filter(m => m.delivered === 0)
         .sort((a, b) => {
-        // Sort by priority desc, then timestamp asc
         if (b.priority !== a.priority) {
             return b.priority - a.priority;
         }
@@ -94,7 +88,6 @@ function getUndeliveredMessages() {
 function getAllMessages() {
     return Object.values(storeData.messages).sort((a, b) => a.timestamp - b.timestamp);
 }
-// Peer Check-in Statuses
 function savePeerStatus(status) {
     storeData.peer_statuses[status.peer_id] = status;
     saveStore();

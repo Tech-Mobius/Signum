@@ -53,7 +53,6 @@ const migrations = __importStar(require("./migrations"));
 let db = null;
 let dbPath = '';
 let isInitialized = false;
-// Initialize SQL.js WASM module
 async function initializeSqlJs() {
     const SQL = await (0, sql_js_1.default)({
         locateFile: (file) => {
@@ -70,23 +69,19 @@ async function initializeSqlJs() {
     });
     return SQL;
 }
-// Get or create database instance
 async function getDatabase(userDataPath) {
     if (db && isInitialized) {
         return db;
     }
     dbPath = path_1.default.join(userDataPath, 'signal.db');
     const SQL = await initializeSqlJs();
-    // Load existing database or create new
     let fileBuffer = null;
     if (fs_1.default.existsSync(dbPath)) {
         fileBuffer = new Uint8Array(fs_1.default.readFileSync(dbPath));
     }
     db = new SQL.Database(fileBuffer ?? undefined);
     isInitialized = true;
-    // Run migrations
     await migrations.runMigrations(db);
-    // Enable WAL mode for better concurrency
     db.exec('PRAGMA journal_mode = WAL;');
     db.exec('PRAGMA synchronous = NORMAL;');
     db.exec('PRAGMA foreign_keys = ON;');
@@ -94,7 +89,6 @@ async function getDatabase(userDataPath) {
     console.log(`SQLite database initialized at: ${dbPath}`);
     return db;
 }
-// Save database to disk
 function saveDatabase() {
     if (!db || !isInitialized)
         return;
@@ -106,7 +100,6 @@ function saveDatabase() {
         console.error('Failed to save database:', err);
     }
 }
-// Periodic save (call every 5 seconds or on app close)
 let saveInterval = null;
 function startAutoSave(intervalMs = 5000) {
     if (saveInterval)
@@ -118,9 +111,8 @@ function stopAutoSave() {
         clearInterval(saveInterval);
         saveInterval = null;
     }
-    saveDatabase(); // Final save
+    saveDatabase();
 }
-// Query helpers
 function query(sql, params = []) {
     if (!db)
         throw new Error('Database not initialized');
@@ -158,7 +150,6 @@ function exec(sql) {
         throw new Error('Database not initialized');
     db.exec(sql);
 }
-// Transaction helper
 function transaction(fn) {
     if (!db)
         throw new Error('Database not initialized');
@@ -173,7 +164,6 @@ function transaction(fn) {
         throw err;
     }
 }
-// Close database
 function closeDatabase() {
     stopAutoSave();
     if (db) {

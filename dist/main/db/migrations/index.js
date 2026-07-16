@@ -7,7 +7,6 @@ const MIGRATIONS = [
         version: 1,
         name: 'initial_schema',
         up: (db) => {
-            // Messages table
             db.exec(`
         CREATE TABLE IF NOT EXISTS messages (
           id TEXT PRIMARY KEY,
@@ -32,7 +31,6 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
         CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id);
       `);
-            // Peers table
             db.exec(`
         CREATE TABLE IF NOT EXISTS peers (
           id TEXT PRIMARY KEY,
@@ -45,7 +43,6 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_peers_status ON peers(status);
         CREATE INDEX IF NOT EXISTS idx_peers_last_seen ON peers(last_seen);
       `);
-            // Peer statuses (check-ins)
             db.exec(`
         CREATE TABLE IF NOT EXISTS peer_statuses (
           peer_id TEXT PRIMARY KEY,
@@ -55,7 +52,6 @@ const MIGRATIONS = [
           timestamp INTEGER NOT NULL
         );
       `);
-            // Crypto keys
             db.exec(`
         CREATE TABLE IF NOT EXISTS crypto_keys (
           id TEXT PRIMARY KEY,
@@ -69,7 +65,6 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_crypto_keys_type ON crypto_keys(key_type);
         CREATE INDEX IF NOT EXISTS idx_crypto_keys_peer ON crypto_keys(peer_id);
       `);
-            // Verified peers (fingerprint verification)
             db.exec(`
         CREATE TABLE IF NOT EXISTS verified_peers (
           peer_id TEXT PRIMARY KEY,
@@ -79,7 +74,6 @@ const MIGRATIONS = [
           display_name TEXT
         );
       `);
-            // Settings
             db.exec(`
         CREATE TABLE IF NOT EXISTS settings (
           key TEXT PRIMARY KEY,
@@ -87,7 +81,6 @@ const MIGRATIONS = [
           updated_at INTEGER NOT NULL
         );
       `);
-            // Pending outbound messages (retry queue)
             db.exec(`
         CREATE TABLE IF NOT EXISTS outbound_queue (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,19 +99,16 @@ const MIGRATIONS = [
         version: 2,
         name: 'add_message_acknowledgment',
         up: (db) => {
-            // Already included in v1, but keeping for reference
         },
     },
     {
         version: 3,
         name: 'add_sender_name_encrypted',
         up: (db) => {
-            // Add sender_name column — safe to ignore if already exists
             try {
                 db.exec(`ALTER TABLE messages ADD COLUMN sender_name TEXT;`);
             }
             catch (_) { }
-            // Add encrypted column — safe to ignore if already exists
             try {
                 db.exec(`ALTER TABLE messages ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0;`);
             }
