@@ -271,6 +271,7 @@ electron_1.ipcMain.on('webrtc:status', (_event, { peerId, status, address, port,
         peerCache.delete(tempId);
     }
     let peer = peerCache.get(peerId);
+    let statusChanged = false;
     if (!peer && status === 'connected') {
         peer = {
             id: peerId,
@@ -280,15 +281,19 @@ electron_1.ipcMain.on('webrtc:status', (_event, { peerId, status, address, port,
             status: 'connected'
         };
         peerCache.set(peerId, peer);
+        statusChanged = true;
         sendDebugLog('Mesh', `Discovered manual connect peer: ${peer.displayName} (${peerId})`);
     }
     if (peer) {
         const oldStatus = peer.status;
-        peer.status = status;
-        if (oldStatus !== status) {
+        if (!statusChanged && oldStatus !== status) {
+            peer.status = status;
+            statusChanged = true;
             sendDebugLog('Mesh', `Connection to peer ${peer.displayName} changed from ${oldStatus} to ${status}`);
+        }
+        if (statusChanged) {
             sendPeerListUpdate();
-            if (status === 'connected') {
+            if (peer.status === 'connected') {
                 (0, router_1.syncUndeliveredMessagesToPeer)(peerId);
             }
         }

@@ -447,7 +447,7 @@ export function SignalProvider({ children }: { children: React.ReactNode }) {
         rawMessage.senderName,
         rawMessage.recipientId,
         type,
-        rawMessage.payload,
+        payload,
         rawMessage.timestamp,
         rawMessage.ttl,
         JSON.stringify(rawMessage.visitedNodes),

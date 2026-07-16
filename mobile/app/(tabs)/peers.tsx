@@ -13,7 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import Svg, { Rect } from 'react-native-svg';
 import AnimatedQRCode from '../../src/components/AnimatedQRCode';
 import { useSignal } from '../../src/context/SignalContext';
