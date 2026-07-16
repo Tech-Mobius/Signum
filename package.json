@@ -19,7 +19,7 @@
       "package.json"
     ],
     "directories": {
-      "output": "dist-installer"
+      "output": "dist-installer-new"
     },
     "win": {
       "target": "nsis"
@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "d3": "^7.8.5",
+    "fflate": "^0.8.3",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.321.0",
     "ogl": "^1.0.11",

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { registerGlobals } from 'react-native-webrtc';
 import * as sqlite from '../db/sqlite';
 import * as crypto from '../crypto';
+import { strToU8, deflateSync, inflateSync, strFromU8 } from 'fflate';
 
 registerGlobals();
 
@@ -14,50 +15,43 @@ const utf8Atob = (str: string): string => {
 };
 
 export async function compressPayload(payload: any): Promise<string> {
-  const jsonStr = JSON.stringify(payload);
-  if (typeof CompressionStream !== 'undefined') {
-    try {
-      const blob = new Blob([jsonStr]);
-      const compressedStream = blob.stream().pipeThrough(new CompressionStream('deflate-raw'));
-      const compressedBlob = await new Response(compressedStream).blob();
-      const arrayBuffer = await compressedBlob.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      let binary = '';
-      for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      return btoa(binary);
-    } catch (e) {
-      console.warn('CompressionStream failed, using uncompressed fallback:', e);
+  try {
+    const jsonStr = JSON.stringify(payload);
+    const bytes = strToU8(jsonStr);
+    const compressed = deflateSync(bytes);
+    let binary = '';
+    const len = compressed.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(compressed[i]);
     }
+    return btoa(binary);
+  } catch (e) {
+    console.warn('fflate compression failed, fallback:', e);
+    return utf8Btoa(JSON.stringify(payload));
   }
-  return utf8Btoa(jsonStr);
 }
 
 export async function decompressPayload(code: string): Promise<any> {
   const trimmed = code.trim();
-  if (typeof DecompressionStream !== 'undefined') {
-    try {
-      const binary = atob(trimmed);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      const blob = new Blob([bytes]);
-      const decompressedStream = blob.stream().pipeThrough(new DecompressionStream('deflate-raw'));
-      const decompressedBlob = await new Response(decompressedStream).blob();
-      const text = await decompressedBlob.text();
-      return JSON.parse(text);
-    } catch (err) {
-    }
-  }
   try {
-    return JSON.parse(utf8Atob(trimmed));
-  } catch (e) {
+    const binary = atob(trimmed);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const decompressed = inflateSync(bytes);
+    const text = strFromU8(decompressed);
+    return JSON.parse(text);
+  } catch (err) {
     try {
-      return JSON.parse(trimmed);
-    } catch (e2) {
-      throw new Error('Failed to parse signaling code');
+      return JSON.parse(utf8Atob(trimmed));
+    } catch (e) {
+      try {
+        return JSON.parse(trimmed);
+      } catch (e2) {
+        throw new Error('Failed to parse signaling code');
+      }
     }
   }
 }

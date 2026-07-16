@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { strToU8, deflateSync, inflateSync, strFromU8 } from 'fflate';
 
 export interface WebRTCHookConfig {
   peerId: string; 
@@ -311,44 +312,40 @@ export function useWebRTC({
   }, [displayName, addLog]);
 
   const compressPayload = async (payload: any): Promise<string> => {
-    const signalString = JSON.stringify(payload);
-    const blob = new Blob([signalString]);
-    const compressedStream = blob.stream().pipeThrough(new CompressionStream('deflate-raw'));
-    const compressedBlob = await new Response(compressedStream).blob();
-    const arrayBuffer = await compressedBlob.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    try {
+      const jsonStr = JSON.stringify(payload);
+      const bytes = strToU8(jsonStr);
+      const compressed = deflateSync(bytes);
+      let binary = '';
+      const len = compressed.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(compressed[i]);
+      }
+      return btoa(binary);
+    } catch (e) {
+      console.warn('fflate compression failed:', e);
+      return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
     }
-    return btoa(binary);
   };
 
   const decompressPayload = async (code: string): Promise<any> => {
+    const trimmed = code.trim();
     try {
-      const binary = atob(code.trim());
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
+      const binary = atob(trimmed);
+      const len = binary.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
         bytes[i] = binary.charCodeAt(i);
       }
-      const blob = new Blob([bytes]);
-      const decompressedStream = blob.stream().pipeThrough(new DecompressionStream('deflate-raw'));
-      const decompressedBlob = await new Response(decompressedStream).blob();
-      const text = await decompressedBlob.text();
+      const decompressed = inflateSync(bytes);
+      const text = strFromU8(decompressed);
       return JSON.parse(text);
     } catch (err) {
       try {
-        const binary = atob(code.trim());
-        const len = binary.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        const text = new TextDecoder().decode(bytes);
-        return JSON.parse(text);
+        const binary = atob(trimmed);
+        return JSON.parse(decodeURIComponent(escape(binary)));
       } catch (err2) {
-        return JSON.parse(code.trim());
+        return JSON.parse(trimmed);
       }
     }
   };
